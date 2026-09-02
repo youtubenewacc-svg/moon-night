@@ -1,4 +1,5 @@
 {
   "providers": ["python"],
+  "nixPkgs": ["ffmpeg", "deno"],
   "aptPkgs": ["ffmpeg"]
 }
