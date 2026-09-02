@@ -6,6 +6,7 @@ import json
 import asyncio
 from datetime import timedelta, datetime, timezone
 import discord
+import yt_dlp
 from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
@@ -18,11 +19,22 @@ OWNER_ID = int(os.getenv("OWNER_ID", "1241496820455313533"))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))
 JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))  # ID of the Jail role
 PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))  # Optional: existing Protected role ID
-WELCOME_CHANNEL_ID = int(os.getenv("1544405491034099712", "0"))
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))
 LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))
-TEMP_VC_CHANNEL_ID = int(os.getenv("1544406112097411072", "0"))
+TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "0"))
 XP_COOLDOWN = 45
 DATA_FILE = "moon_night_data.json"
+
+# Music / Voice settings
+YTDL_OPTIONS = {
+    "format": "bestaudio/best",
+    "noplaylist": True,
+    "quiet": True,
+    "no_warnings": True,
+    "default_search": "ytsearch",
+    "source_address": "0.0.0.0",
+}
+FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
 # Color Palette (Dark Theme / Night Blue Aesthetic)
 EMBED_COLOR = 0x2b2d31
@@ -925,6 +937,316 @@ async def on_member_remove(member: discord.Member):
 
 
 # ==========================================
+# MUSIC / VOICE SYSTEM
+# ==========================================
+MUSIC_PLAYERS = {}
+
+class MusicPlayer:
+    def __init__(self, guild_id):
+        self.guild_id = guild_id
+        self.queue = []
+        self.current = None
+        self.voice = None
+        self.volume = 1.0
+        self.loop = "off"  # off, song, queue
+        self.autoplay = False
+        self.filter_name = "off"
+        self.lock = asyncio.Lock()
+
+    def filter_args(self):
+        if self.filter_name == "nightcore":
+            return "-af asetrate=48000*1.25,aresample=48000,atempo=0.8"
+        if self.filter_name == "bassboost":
+            return "-af bass=g=10"
+        return ""
+
+    def ffmpeg_source(self, url):
+        before = FFMPEG_BEFORE_OPTIONS
+        options = self.filter_args()
+        audio = discord.FFmpegPCMAudio(url, before_options=before, options=options or None)
+        return discord.PCMVolumeTransformer(audio, volume=self.volume)
+
+
+def music_player(guild_id):
+    if guild_id not in MUSIC_PLAYERS:
+        MUSIC_PLAYERS[guild_id] = MusicPlayer(guild_id)
+    return MUSIC_PLAYERS[guild_id]
+
+
+def _extract_info(query):
+    with yt_dlp.YoutubeDL(YTDL_OPTIONS) as ydl:
+        info = ydl.extract_info(query, download=False)
+        if "entries" in info:
+            info = next((x for x in info["entries"] if x), None)
+        if not info:
+            raise RuntimeError("No audio result found.")
+        return {
+            "title": info.get("title", "Unknown track"),
+            "url": info.get("url"),
+            "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
+            "duration": info.get("duration") or 0,
+            "thumbnail": info.get("thumbnail"),
+            "uploader": info.get("uploader", "Unknown")
+        }
+
+
+async def extract_track(query):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _extract_info, query)
+
+
+async def ensure_voice(interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+        return None
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message("❌ Join a voice channel first.", ephemeral=True)
+        return None
+    target = interaction.user.voice.channel
+    player = music_player(interaction.guild.id)
+    if interaction.guild.voice_client and interaction.guild.voice_client.is_connected():
+        player.voice = interaction.guild.voice_client
+        if player.voice.channel != target:
+            await player.voice.move_to(target)
+    else:
+        try:
+            player.voice = await target.connect()
+        except discord.Forbidden:
+            await interaction.response.send_message("❌ I need **Connect** and **Speak** permissions in that voice channel.", ephemeral=True)
+            return None
+    return player
+
+
+async def play_next(guild_id):
+    player = MUSIC_PLAYERS.get(guild_id)
+    if not player or not player.voice or not player.voice.is_connected():
+        return
+    if player.voice.is_playing() or player.voice.is_paused():
+        return
+
+    if player.loop == "song" and player.current:
+        track = player.current
+    elif player.queue:
+        if player.current and player.loop == "queue":
+            player.queue.append(player.current)
+        track = player.queue.pop(0)
+        player.current = track
+    elif player.autoplay and player.current:
+        try:
+            query = f"ytsearch1:{player.current['title']} official audio"
+            track = await extract_track(query)
+            player.current = track
+        except Exception as exc:
+            print(f"Autoplay error: {exc}")
+            return
+    else:
+        return
+
+    try:
+        source = player.ffmpeg_source(track["url"])
+    except Exception as exc:
+        print(f"FFmpeg source error: {exc}")
+        return
+
+    def after_play(error):
+        if error:
+            print(f"Music playback error: {error}")
+        asyncio.run_coroutine_threadsafe(play_next(guild_id), bot.loop)
+
+    player.voice.play(source, after=after_play)
+
+
+@bot.tree.command(name="join", description="Join your current voice channel")
+async def music_join(interaction: Interaction):
+    player = await ensure_voice(interaction)
+    if player is None:
+        return
+    await interaction.response.send_message(f"🎵 Joined **{player.voice.channel.name}**. Ready to play music!")
+
+
+@bot.tree.command(name="leave", description="Leave voice and clear the music queue")
+async def music_leave(interaction: Interaction):
+    player = music_player(interaction.guild.id)
+    vc = interaction.guild.voice_client
+    if not vc:
+        return await interaction.response.send_message("❌ I'm not in a voice channel.", ephemeral=True)
+    player.queue.clear()
+    player.current = None
+    player.autoplay = False
+    player.loop = "off"
+    vc.stop()
+    await vc.disconnect()
+    player.voice = None
+    await interaction.response.send_message("👋 Left voice and cleared the queue.")
+
+
+@bot.tree.command(name="play", description="Play YouTube or SoundCloud audio")
+@app_commands.describe(query="YouTube/SoundCloud URL or song name")
+async def music_play(interaction: Interaction, query: str):
+    player = await ensure_voice(interaction)
+    if player is None:
+        return
+    await interaction.response.defer()
+    try:
+        track = await extract_track(query)
+    except Exception as exc:
+        return await interaction.followup.send(f"❌ Couldn't find that track.\n`{str(exc)[:300]}`", ephemeral=True)
+    player.queue.append(track)
+    position = len(player.queue)
+    if not player.voice.is_playing() and not player.voice.is_paused():
+        await play_next(interaction.guild.id)
+        position = "Now playing"
+    embed = discord.Embed(title="🎵 Added to Moon Night Music", description=f"**{track['title']}**", color=EMBED_COLOR)
+    embed.add_field(name="Artist / Uploader", value=track["uploader"], inline=True)
+    embed.add_field(name="Queue", value=f"`{position}`", inline=True)
+    if track.get("thumbnail"):
+        embed.set_thumbnail(url=track["thumbnail"])
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="pause", description="Pause the current music")
+async def music_pause(interaction: Interaction):
+    vc = interaction.guild.voice_client
+    if not vc or not vc.is_playing():
+        return await interaction.response.send_message("❌ Nothing is playing.", ephemeral=True)
+    vc.pause()
+    await interaction.response.send_message("⏸️ Music paused.")
+
+
+@bot.tree.command(name="resume", description="Resume paused music")
+async def music_resume(interaction: Interaction):
+    vc = interaction.guild.voice_client
+    if not vc or not vc.is_paused():
+        return await interaction.response.send_message("❌ Music isn't paused.", ephemeral=True)
+    vc.resume()
+    await interaction.response.send_message("▶️ Music resumed.")
+
+
+@bot.tree.command(name="skip", description="Skip the current track")
+async def music_skip(interaction: Interaction):
+    vc = interaction.guild.voice_client
+    if not vc or not (vc.is_playing() or vc.is_paused()):
+        return await interaction.response.send_message("❌ Nothing is playing.", ephemeral=True)
+    vc.stop()
+    await interaction.response.send_message("⏭️ Skipped. Loading the next track...")
+
+
+@bot.tree.command(name="stop", description="Stop music and clear the queue")
+async def music_stop(interaction: Interaction):
+    player = music_player(interaction.guild.id)
+    player.queue.clear()
+    player.current = None
+    player.loop = "off"
+    vc = interaction.guild.voice_client
+    if vc:
+        vc.stop()
+    await interaction.response.send_message("⏹️ Music stopped and queue cleared.")
+
+
+@bot.tree.command(name="queue", description="Show the current music queue")
+async def music_queue(interaction: Interaction):
+    player = music_player(interaction.guild.id)
+    lines = []
+    if player.current:
+        lines.append(f"🎶 **Now:** {player.current['title']}")
+    for i, track in enumerate(player.queue[:15], 1):
+        lines.append(f"`{i}.` {track['title']}")
+    if not lines:
+        lines = ["🌙 The music queue is empty."]
+    embed = discord.Embed(title="🎵 Moon Night • Music Queue", description="\n".join(lines), color=EMBED_COLOR)
+    embed.set_footer(text=f"Loop: {player.loop} • Autoplay: {'ON' if player.autoplay else 'OFF'} • Filter: {player.filter_name}")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="nowplaying", description="Show the currently playing track")
+async def music_nowplaying(interaction: Interaction):
+    player = music_player(interaction.guild.id)
+    if not player.current:
+        return await interaction.response.send_message("❌ Nothing is playing.", ephemeral=True)
+    embed = discord.Embed(title="🎵 Now Playing", description=f"**{player.current['title']}**", color=EMBED_COLOR)
+    embed.add_field(name="Artist / Uploader", value=player.current["uploader"], inline=True)
+    embed.add_field(name="Volume", value=f"`{int(player.volume * 100)}%`", inline=True)
+    embed.add_field(name="Loop", value=f"`{player.loop}`", inline=True)
+    if player.current.get("thumbnail"):
+        embed.set_thumbnail(url=player.current["thumbnail"])
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="volume", description="Set music volume from 0% to 200%")
+@app_commands.describe(percent="Volume percentage: 0-200")
+async def music_volume(interaction: Interaction, percent: app_commands.Range[int, 0, 200]):
+    player = music_player(interaction.guild.id)
+    player.volume = percent / 100
+    vc = interaction.guild.voice_client
+    if vc and vc.source and isinstance(vc.source, discord.PCMVolumeTransformer):
+        vc.source.volume = player.volume
+    await interaction.response.send_message(f"🔊 Volume set to **{percent}%**.")
+
+
+@bot.tree.command(name="loop", description="Set loop mode")
+@app_commands.describe(mode="off, song or queue")
+@app_commands.choices(mode=[
+    app_commands.Choice(name="Off", value="off"),
+    app_commands.Choice(name="Song", value="song"),
+    app_commands.Choice(name="Queue", value="queue")
+])
+async def music_loop(interaction: Interaction, mode: app_commands.Choice[str]):
+    player = music_player(interaction.guild.id)
+    player.loop = mode.value
+    await interaction.response.send_message(f"🔁 Loop mode: **{mode.name}**.")
+
+
+@bot.tree.command(name="autoplay", description="Toggle automatic music when the queue ends")
+@app_commands.describe(enabled="Turn autoplay on or off")
+async def music_autoplay(interaction: Interaction, enabled: bool):
+    player = music_player(interaction.guild.id)
+    player.autoplay = enabled
+    await interaction.response.send_message(f"🤖 Autoplay: **{'ON' if enabled else 'OFF'}**.")
+
+
+@bot.tree.command(name="remove", description="Remove a queued track by position")
+@app_commands.describe(position="Queue position, starting at 1")
+async def music_remove(interaction: Interaction, position: app_commands.Range[int, 1, 1000]):
+    player = music_player(interaction.guild.id)
+    if position > len(player.queue):
+        return await interaction.response.send_message("❌ That queue position doesn't exist.", ephemeral=True)
+    track = player.queue.pop(position - 1)
+    await interaction.response.send_message(f"🗑️ Removed **{track['title']}** from the queue.")
+
+
+@bot.tree.command(name="clearqueue", description="Clear the music queue")
+async def music_clearqueue(interaction: Interaction):
+    player = music_player(interaction.guild.id)
+    count = len(player.queue)
+    player.queue.clear()
+    await interaction.response.send_message(f"🧹 Cleared **{count}** queued track(s). Current track keeps playing.")
+
+
+@bot.tree.command(name="filter", description="Set a music audio filter")
+@app_commands.describe(name="off, nightcore or bassboost")
+@app_commands.choices(name=[
+    app_commands.Choice(name="Off", value="off"),
+    app_commands.Choice(name="Nightcore", value="nightcore"),
+    app_commands.Choice(name="Bassboost", value="bassboost")
+])
+async def music_filter(interaction: Interaction, name: app_commands.Choice[str]):
+    player = music_player(interaction.guild.id)
+    player.filter_name = name.value
+    vc = interaction.guild.voice_client
+    if vc and (vc.is_playing() or vc.is_paused()) and player.current:
+        was_paused = vc.is_paused()
+        vc.stop()
+        await asyncio.sleep(0.25)
+        if was_paused:
+            await play_next(interaction.guild.id)
+            if vc.is_playing():
+                vc.pause()
+        else:
+            await play_next(interaction.guild.id)
+    await interaction.response.send_message(f"🎚️ Audio filter: **{name.name}**.")
+
+
+# ==========================================
 # 10. HELP CENTER
 # ==========================================
 HELP_CATEGORIES = {
@@ -960,7 +1282,8 @@ HELP_CATEGORIES = {
         ("/daily", "Claim a daily virtual reward."),
         ("/work", "Earn virtual coins."),
         ("/pay", "Send virtual coins to another member."),
-        ("/leaderboard", "Richest members leaderboard.")
+        ("/leaderboard", "Richest members leaderboard."),
+        ("/givecoins", "Owner/Admin: give Moon Coins to a member.")
     ],
     "🏆 Levels": [
         ("/rank", "Show XP and level."),
@@ -980,6 +1303,23 @@ HELP_CATEGORIES = {
         ("/giveaway", "Start a timed giveaway."),
         ("/giveaway_end", "End a giveaway early."),
         ("/birthday", "Set, view or remove a birthday.")
+    ],
+    "🎵 Music": [
+        ("/join", "Join the voice channel you are currently in."),
+        ("/leave", "Leave voice and clear the music queue."),
+        ("/play", "Play YouTube or SoundCloud audio and add tracks to the queue."),
+        ("/pause", "Pause the currently playing track."),
+        ("/resume", "Resume paused music."),
+        ("/skip", "Skip the current track."),
+        ("/stop", "Stop music and clear the queue."),
+        ("/queue", "Show the current queue."),
+        ("/nowplaying", "Show the track currently playing."),
+        ("/volume", "Set volume from 0% to 200%."),
+        ("/loop", "Set loop mode: off, song or queue."),
+        ("/autoplay", "Automatically queue another track when the queue ends."),
+        ("/remove", "Remove a track from the queue by position."),
+        ("/clearqueue", "Clear all queued tracks without leaving voice."),
+        ("/filter", "Set audio filter: off, nightcore or bassboost.")
     ],
     "🌙 Server": [
         ("/about", "Show server statistics."),
@@ -1317,6 +1657,18 @@ async def pay(interaction: Interaction, user: discord.Member, amount: app_comman
     receiver["coins"] += amount
     save_data()
     await interaction.response.send_message(f"💸 Sent **{amount:,}** Moon Coins to {user.mention}.")
+
+@bot.tree.command(name="givecoins", description="Give virtual Moon Coins to a member")
+@app_commands.describe(amount="Amount of Moon Coins", user="Member who receives the coins")
+@is_owner_or_admin()
+async def givecoins(interaction: Interaction, amount: app_commands.Range[int, 1, 1000000000], user: discord.Member):
+    if user.bot:
+        return await interaction.response.send_message("❌ You cannot give coins to a bot.", ephemeral=True)
+    wallet = get_wallet(interaction.guild.id, user.id)
+    wallet["coins"] += amount
+    save_data()
+    await interaction.response.send_message(f"💰 Added **{amount:,} Moon Coins** to {user.mention}.\n💳 New balance: **{wallet['coins']:,}**")
+
 
 @bot.tree.command(name="leaderboard", description="Richest members leaderboard")
 async def leaderboard(interaction: Interaction):
