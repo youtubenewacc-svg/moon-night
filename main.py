@@ -18,9 +18,9 @@ OWNER_ID = int(os.getenv("OWNER_ID", "1241496820455313533"))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))
 JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))  # ID of the Jail role
 PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))  # Optional: existing Protected role ID
-WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))
+WELCOME_CHANNEL_ID = int(os.getenv("1544405491034099712", "0"))
 LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))
-TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "0"))
+TEMP_VC_CHANNEL_ID = int(os.getenv("1544406112097411072", "0"))
 XP_COOLDOWN = 45
 DATA_FILE = "moon_night_data.json"
 
