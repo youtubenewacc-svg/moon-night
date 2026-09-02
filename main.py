@@ -5,10 +5,10 @@ import random
 import json
 import asyncio
 import shutil
+import ctypes.util
 from datetime import timedelta, datetime, timezone
 import discord
 import yt_dlp
-import ctypes.util
 
 try:
     import imageio_ffmpeg
@@ -22,7 +22,7 @@ from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
 
-# Voice dependency diagnostics (discord.py 2.6+ requires PyNaCl and davey for voice)
+# Voice dependency diagnostics
 try:
     import nacl
     PYNACL_OK = True
@@ -36,6 +36,39 @@ try:
 except Exception as exc:
     DAVEY_OK = False
     print(f"[VOICE DEPENDENCY] davey unavailable: {exc!r}")
+
+# discord.py needs the native Opus library for voice encoding.
+OPUS_OK = False
+try:
+    if discord.opus.is_loaded():
+        OPUS_OK = True
+        print("[OPUS] Opus is already loaded.")
+    else:
+        opus_candidates = [
+            ctypes.util.find_library("opus"),
+            "libopus.so.0",
+            "libopus.so",
+            "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+            "/usr/lib/aarch64-linux-gnu/libopus.so.0",
+            "/usr/lib/libopus.so.0",
+            "/usr/local/lib/libopus.so.0",
+        ]
+        for opus_path in opus_candidates:
+            if not opus_path:
+                continue
+            try:
+                print(f"[OPUS] Trying to load: {opus_path}")
+                discord.opus.load_opus(opus_path)
+                if discord.opus.is_loaded():
+                    OPUS_OK = True
+                    print(f"[OPUS] Successfully loaded: {opus_path}")
+                    break
+            except Exception as opus_exc:
+                print(f"[OPUS] Failed to load {opus_path}: {type(opus_exc).__name__}: {opus_exc!r}")
+except Exception as exc:
+    print(f"[OPUS] Loader error: {type(exc).__name__}: {exc!r}")
+
+print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK} | Opus={OPUS_OK}")
 
 # ==========================================
 # CONFIGURATION & SETTINGS (Using Environment Variables)
@@ -53,24 +86,14 @@ DATA_FILE = "moon_night_data.json"
 
 # Music / Voice settings
 YTDL_OPTIONS = {
-    # Prefer a real audio-only stream. The fallback keeps SoundCloud and
-    # other supported extractors working when they expose a different format.
-    "format": "bestaudio[acodec!=none]/bestaudio/best",
+    "format": "bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
-    "skip_download": True,
 }
-
-# FFmpeg is reading a remote, often expiring CDN URL. Reconnect options plus
-# the headers supplied by yt-dlp make YouTube/SoundCloud streams much more
-# reliable on cloud hosts such as Railway.
-FFMPEG_BEFORE_OPTIONS = (
-    "-reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 "
-    "-reconnect_on_network_error 1 -reconnect_delay_max 5"
-)
+FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
 # Color Palette (Dark Theme / Night Blue Aesthetic)
 EMBED_COLOR = 0x2b2d31
@@ -1018,36 +1041,10 @@ class MusicPlayer:
             return "-af bass=g=10"
         return None
 
-    def ffmpeg_source(self, track):
-        """Build an FFmpeg source from a yt-dlp track.
-
-        yt-dlp may need to send specific HTTP headers (especially User-Agent
-        and Referer) to the CDN URL it returns. Passing those headers to
-        FFmpeg prevents the common "bot joins but there is no audio" problem
-        caused by a CDN returning 403/empty data to FFmpeg.
-        """
-        url = track["url"]
+    def ffmpeg_source(self, url):
         filter_args = self.filter_args()
-        before_parts = [FFMPEG_BEFORE_OPTIONS]
-
-        headers = track.get("http_headers") or {}
-        if headers:
-            # FFmpeg expects CRLF-separated HTTP headers. Quote the complete
-            # value because User-Agent/Referer can contain spaces.
-            header_lines = []
-            for key, value in headers.items():
-                if value is None:
-                    continue
-                value = str(value).replace("\r", "").replace("\n", "")
-                header_lines.append(f"{key}: {value}")
-            if header_lines:
-                header_blob = "\r\n".join(header_lines) + "\r\n"
-                before_parts.append(
-                    "-headers " + json.dumps(header_blob, ensure_ascii=False)
-                )
-
-        before = " ".join(before_parts)
-        options = "-vn -sn -dn -loglevel warning"
+        before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+        options = "-vn"
         if filter_args:
             options += f" {filter_args}"
 
@@ -1095,9 +1092,6 @@ def _extract_info(query):
         return {
             "title": info.get("title", "Unknown track"),
             "url": direct_url,
-            # Critical for CDN streams: FFmpeg must use the same headers that
-            # yt-dlp used when resolving the stream URL.
-            "http_headers": info.get("http_headers") or {},
             "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
             "duration": info.get("duration") or 0,
             "thumbnail": info.get("thumbnail"),
@@ -1144,28 +1138,16 @@ async def ensure_voice(interaction: Interaction):
         )
         return None
 
+    if not OPUS_OK or not discord.opus.is_loaded():
+        print("[VOICE] Opus is NOT loaded. Music playback cannot start.")
+        await interaction.followup.send(
+            "❌ Voice is unavailable because **Opus could not be loaded**. "
+            "Install `libopus0` on Railway and redeploy.",
+            ephemeral=True,
+        )
+        return None
+
     target = interaction.user.voice.channel
-
-    # A bot can sometimes connect to a channel while still lacking Speak.
-    # Check it explicitly so a silent connection is reported as a permission
-    # problem instead of looking like a music/FFmpeg failure.
-    me = interaction.guild.me
-    if me is not None:
-        permissions = target.permissions_for(me)
-        if not permissions.view_channel or not permissions.connect:
-            await interaction.followup.send(
-                "❌ I need **View Channel** and **Connect** permissions in that voice channel.",
-                ephemeral=True,
-            )
-            return None
-        if not permissions.speak:
-            await interaction.followup.send(
-                "❌ I can join, but I don't have **Speak** permission in that voice channel. "
-                "Give the bot **Connect + Speak** and try `/play` again.",
-                ephemeral=True,
-            )
-            return None
-
     player = music_player(interaction.guild.id)
     vc = interaction.guild.voice_client
 
@@ -1232,10 +1214,14 @@ async def ensure_voice(interaction: Interaction):
 async def play_next(guild_id):
     player = MUSIC_PLAYERS.get(guild_id)
     if not player or not player.voice or not player.voice.is_connected():
-        return
+        return False
 
     if player.voice.is_playing() or player.voice.is_paused():
-        return
+        return False
+
+    if not discord.opus.is_loaded():
+        print("[MUSIC] ERROR: Discord Opus is not loaded.")
+        return False
 
     if player.loop == "song" and player.current:
         track = player.current
@@ -1251,33 +1237,30 @@ async def play_next(guild_id):
             player.current = track
         except Exception as exc:
             print(f"[AUTOPLAY ERROR] {type(exc).__name__}: {exc!r}")
-            return
+            return False
     else:
-        return
+        return False
 
     try:
-        source = player.ffmpeg_source(track)
+        source = player.ffmpeg_source(track["url"])
     except Exception as exc:
         print(f"[FFMPEG SOURCE ERROR] {type(exc).__name__}: {exc!r}")
         return False
 
     def after_play(error):
         if error:
-            print(
-                f"[MUSIC PLAYBACK ERROR] {type(error).__name__}: {error!r} "
-                f"| track={track.get('title', 'unknown')!r}"
-            )
+            print(f"[MUSIC PLAYBACK ERROR] {type(error).__name__}: {error!r}")
+        else:
+            print(f"[MUSIC] Finished: {track.get('title', 'Unknown')}")
         try:
-            asyncio.run_coroutine_threadsafe(
-                play_next(guild_id), bot.loop
-            )
+            asyncio.run_coroutine_threadsafe(play_next(guild_id), bot.loop)
         except Exception as exc:
             print(f"[PLAY NEXT CALLBACK ERROR] {type(exc).__name__}: {exc!r}")
 
     try:
+        print(f"[MUSIC] Starting playback: {track.get('title', 'Unknown')}")
         player.voice.play(source, after=after_play)
-        # discord.py accepts the source synchronously; FFmpeg itself starts
-        # in a subprocess immediately after this call.
+        print("[MUSIC] Voice playback started successfully.")
         return True
     except Exception as exc:
         print(f"[VOICE PLAY ERROR] {type(exc).__name__}: {exc!r}")
@@ -1353,12 +1336,7 @@ async def music_play(interaction: Interaction, query: str):
 
     if not player.voice.is_playing() and not player.voice.is_paused():
         started = await play_next(interaction.guild.id)
-        if started:
-            position = "Now playing"
-        else:
-            # Do not claim playback started when FFmpeg/Discord rejected the
-            # source. Keep the track in the queue so it can be retried.
-            position = "Queued (playback error — check bot logs)"
+        position = "Now playing" if started else "Queued (playback error — check bot logs)"
 
     embed = discord.Embed(
         title="🎵 Added to Moon Night Music",
@@ -2414,6 +2392,10 @@ async def on_ready():
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is missing.")
 
-print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK}")
+print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK} | Opus={OPUS_OK}")
+if not OPUS_OK:
+    print("[WARNING] Opus is not loaded. Music playback will NOT work.")
+else:
+    print("[VOICE] All voice dependencies are ready.")
 
 bot.run(BOT_TOKEN)
