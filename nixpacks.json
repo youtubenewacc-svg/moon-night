@@ -1,5 +1,12 @@
 {
   "providers": ["python"],
-  "nixPkgs": ["ffmpeg", "deno"],
-  "aptPkgs": ["ffmpeg"]
+  "nixPkgs": [
+    "ffmpeg",
+    "deno",
+    "libopus"
+  ],
+  "aptPkgs": [
+    "ffmpeg",
+    "libopus0"
+  ]
 }
