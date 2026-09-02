@@ -52,14 +52,24 @@ DATA_FILE = "moon_night_data.json"
 
 # Music / Voice settings
 YTDL_OPTIONS = {
-    "format": "bestaudio/best",
+    # Prefer a real audio-only stream. The fallback keeps SoundCloud and
+    # other supported extractors working when they expose a different format.
+    "format": "bestaudio[acodec!=none]/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
+    "skip_download": True,
 }
-FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+
+# FFmpeg is reading a remote, often expiring CDN URL. Reconnect options plus
+# the headers supplied by yt-dlp make YouTube/SoundCloud streams much more
+# reliable on cloud hosts such as Railway.
+FFMPEG_BEFORE_OPTIONS = (
+    "-reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 "
+    "-reconnect_on_network_error 1 -reconnect_delay_max 5"
+)
 
 # Color Palette (Dark Theme / Night Blue Aesthetic)
 EMBED_COLOR = 0x2b2d31
@@ -1007,10 +1017,36 @@ class MusicPlayer:
             return "-af bass=g=10"
         return None
 
-    def ffmpeg_source(self, url):
+    def ffmpeg_source(self, track):
+        """Build an FFmpeg source from a yt-dlp track.
+
+        yt-dlp may need to send specific HTTP headers (especially User-Agent
+        and Referer) to the CDN URL it returns. Passing those headers to
+        FFmpeg prevents the common "bot joins but there is no audio" problem
+        caused by a CDN returning 403/empty data to FFmpeg.
+        """
+        url = track["url"]
         filter_args = self.filter_args()
-        before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
-        options = "-vn"
+        before_parts = [FFMPEG_BEFORE_OPTIONS]
+
+        headers = track.get("http_headers") or {}
+        if headers:
+            # FFmpeg expects CRLF-separated HTTP headers. Quote the complete
+            # value because User-Agent/Referer can contain spaces.
+            header_lines = []
+            for key, value in headers.items():
+                if value is None:
+                    continue
+                value = str(value).replace("\r", "").replace("\n", "")
+                header_lines.append(f"{key}: {value}")
+            if header_lines:
+                header_blob = "\r\n".join(header_lines) + "\r\n"
+                before_parts.append(
+                    "-headers " + json.dumps(header_blob, ensure_ascii=False)
+                )
+
+        before = " ".join(before_parts)
+        options = "-vn -sn -dn -loglevel warning"
         if filter_args:
             options += f" {filter_args}"
 
@@ -1058,6 +1094,9 @@ def _extract_info(query):
         return {
             "title": info.get("title", "Unknown track"),
             "url": direct_url,
+            # Critical for CDN streams: FFmpeg must use the same headers that
+            # yt-dlp used when resolving the stream URL.
+            "http_headers": info.get("http_headers") or {},
             "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
             "duration": info.get("duration") or 0,
             "thumbnail": info.get("thumbnail"),
@@ -1105,6 +1144,27 @@ async def ensure_voice(interaction: Interaction):
         return None
 
     target = interaction.user.voice.channel
+
+    # A bot can sometimes connect to a channel while still lacking Speak.
+    # Check it explicitly so a silent connection is reported as a permission
+    # problem instead of looking like a music/FFmpeg failure.
+    me = interaction.guild.me
+    if me is not None:
+        permissions = target.permissions_for(me)
+        if not permissions.view_channel or not permissions.connect:
+            await interaction.followup.send(
+                "❌ I need **View Channel** and **Connect** permissions in that voice channel.",
+                ephemeral=True,
+            )
+            return None
+        if not permissions.speak:
+            await interaction.followup.send(
+                "❌ I can join, but I don't have **Speak** permission in that voice channel. "
+                "Give the bot **Connect + Speak** and try `/play` again.",
+                ephemeral=True,
+            )
+            return None
+
     player = music_player(interaction.guild.id)
     vc = interaction.guild.voice_client
 
@@ -1195,29 +1255,36 @@ async def play_next(guild_id):
         return
 
     try:
-        source = player.ffmpeg_source(track["url"])
+        source = player.ffmpeg_source(track)
     except Exception as exc:
         print(f"[FFMPEG SOURCE ERROR] {type(exc).__name__}: {exc!r}")
-        return
+        return False
 
     def after_play(error):
         if error:
-            print(f"[MUSIC PLAYBACK ERROR] {error!r}")
+            print(
+                f"[MUSIC PLAYBACK ERROR] {type(error).__name__}: {error!r} "
+                f"| track={track.get('title', 'unknown')!r}"
+            )
         try:
             asyncio.run_coroutine_threadsafe(
                 play_next(guild_id), bot.loop
             )
         except Exception as exc:
-            print(f"[PLAY NEXT CALLBACK ERROR] {exc!r}")
+            print(f"[PLAY NEXT CALLBACK ERROR] {type(exc).__name__}: {exc!r}")
 
     try:
         player.voice.play(source, after=after_play)
+        # discord.py accepts the source synchronously; FFmpeg itself starts
+        # in a subprocess immediately after this call.
+        return True
     except Exception as exc:
         print(f"[VOICE PLAY ERROR] {type(exc).__name__}: {exc!r}")
         try:
             source.cleanup()
         except Exception:
             pass
+        return False
 
 
 @bot.tree.command(name="join", description="Join your current voice channel")
@@ -1284,8 +1351,13 @@ async def music_play(interaction: Interaction, query: str):
     position = len(player.queue)
 
     if not player.voice.is_playing() and not player.voice.is_paused():
-        await play_next(interaction.guild.id)
-        position = "Now playing"
+        started = await play_next(interaction.guild.id)
+        if started:
+            position = "Now playing"
+        else:
+            # Do not claim playback started when FFmpeg/Discord rejected the
+            # source. Keep the track in the queue so it can be retried.
+            position = "Queued (playback error — check bot logs)"
 
     embed = discord.Embed(
         title="🎵 Added to Moon Night Music",
