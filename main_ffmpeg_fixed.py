@@ -4,9 +4,19 @@ import re
 import random
 import json
 import asyncio
+import shutil
 from datetime import timedelta, datetime, timezone
 import discord
 import yt_dlp
+
+try:
+    import imageio_ffmpeg
+    IMAGEIO_FFMPEG_OK = True
+except Exception as exc:
+    imageio_ffmpeg = None
+    IMAGEIO_FFMPEG_OK = False
+    print(f"[FFMPEG DEPENDENCY] imageio-ffmpeg unavailable: {exc!r}")
+
 from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
@@ -957,6 +967,27 @@ async def on_member_remove(member: discord.Member):
 MUSIC_PLAYERS = {}
 
 
+def get_ffmpeg_executable():
+    """Find FFmpeg on PATH, then fall back to imageio-ffmpeg's bundled binary."""
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        print(f"[FFMPEG] Using system FFmpeg: {system_ffmpeg}")
+        return system_ffmpeg
+
+    if IMAGEIO_FFMPEG_OK:
+        try:
+            bundled_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            if bundled_ffmpeg and os.path.isfile(bundled_ffmpeg):
+                print(f"[FFMPEG] Using bundled FFmpeg: {bundled_ffmpeg}")
+                return bundled_ffmpeg
+        except Exception as exc:
+            print(f"[FFMPEG] Could not locate bundled FFmpeg: {exc!r}")
+
+    raise RuntimeError(
+        "FFmpeg was not found. Install ffmpeg in Railway or ensure imageio-ffmpeg is installed."
+    )
+
+
 class MusicPlayer:
     def __init__(self, guild_id):
         self.guild_id = guild_id
@@ -983,10 +1014,11 @@ class MusicPlayer:
         if filter_args:
             options += f" {filter_args}"
 
-        # executable='ffmpeg' makes the Railway/Nixpacks dependency explicit.
+        executable = get_ffmpeg_executable()
+
         audio = discord.FFmpegPCMAudio(
             url,
-            executable="ffmpeg",
+            executable=executable,
             before_options=before,
             options=options,
         )
