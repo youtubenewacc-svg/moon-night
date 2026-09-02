@@ -116,16 +116,112 @@ print(
 )
 
 # ==========================================
-# CONFIGURATION & SETTINGS (Using Environment Variables)
+# EASY CUSTOMIZATION — CHANGE YOUR SETTINGS HERE
+# ==========================================
+# This is the only section you normally need to edit.
+# IDs = Discord IDs. Emojis = custom emoji code. Images = image/banner URLs.
+# Put 0 for WELCOME/LEAVE if you want those features disabled.
 # ==========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID", "1241496820455313533"))
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))
-JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))  # ID of the Jail role
-PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))  # Optional: existing Protected role ID
-WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))
-LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))
-TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1544406112097411072"))
+
+# 👑 OWNER / LOGGING / IMPORTANT CHANNELS
+OWNER_ID = int(os.getenv("OWNER_ID", "1241496820455313533"))          # 👑 Bot owner ID
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))  # 📝 Role-request log channel
+JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))                  # ⛓️ Jail role
+PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))        # 🛡️ Protected role (optional)
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))      # 👋 Welcome channel; 0 = off
+LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))          # 💔 Leave channel; 0 = off
+TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1544406112097411072")) # 🔊 Temp VC creator
+
+# 📌 CHANNEL IDs — change the numbers only
+CHANNEL_IDS = {
+    "news": 1482902413554745638,        # 📰 News
+    "rules": 1482902414997852381,       # 📜 Rules
+    "self_roles": 1482902461168615465,  # 🎭 Self roles
+    "apply": 1482902427064864833,       # 🧑‍💼 Apply/team
+    "general": 1482902490549850184,     # 💬 General
+    "commands": 1482902491711541328,    # 🤖 Bot commands
+    "temp_voice": 1482902422065123338,  # 🔊 Temporary VC
+    "ticket": 1482902524376780932,      # 🎫 Ticket/help
+}
+
+# 🎭 ROLE IDs — change the numbers only
+ROLE_IDS = {
+    # 🚀 Booster roles
+    "booster_nickname": 1523714779032584363,
+    "booster_moon": 1508497154313027675,
+    "booster_soundboard": 1482902118137462896,
+    "booster_pic": 1482902117693001898,
+    "booster_link": 1482902116858331217,
+    "booster_bughunter": 1482902047236952117,
+    "booster_vip": 1482902046653943870,
+    "booster_special": 1482902043558547650,
+
+    # 💘 Situation roles
+    "heartless": 1482902155219304549,
+    "taken": 1482902157324849333,
+    "single": 1482902156364484661,
+
+    # 🧑 Gender roles
+    "female": 1482902134071754832,
+    "male": 1482902134545580123,
+    "trans": 1482902135000000000,
+
+    # 🎮 Games roles
+    "valorant": 1482902200000000001,
+    "freefire": 1482902200000000002,
+    "pubg": 1482902200000000003,
+    "chess": 1482902200000000004,
+    "bloodstrike": 1482902200000000005,
+}
+
+# 😀 CUSTOM DISCORD EMOJIS — replace the value in quotes
+EMOJIS = {
+    "hi": "<:theCall_pink_hi:1509305726655402185>",
+    "instagram": "<:INSTA:1532413334261993602>",
+    "tiktok": "<:TIKTOK:1532413262669283451>",
+    "ig_group": "<:popcornpandita:1529830303483429025>",
+    "store": "<:5143storeg:1532413144876585056>",
+    "moon": "<:bunny_moon:1532388030411833344>",
+    "members": "<:Fams:1451145463511384094>",
+    "voice": "<:voice:1451145649801269420>",
+    "premium": "<:premium:1451145621246312529>",
+    "rules_star": "<a:estrellasbrillando:1442626060134121472>",
+    "welcome": "<a:welcome:1442626577690132663>",
+    "channel": "<a:channelutility:1444868927262822582>",
+    "arrow": "<:arrowblancasincentro:1444869479250002021>",
+    "situation": "<a:11pm_redflower:1508777764994416791>",
+    "gender": "<:gendersheaven:1421638974287384747>",
+    "butterfly": "<a:butterfly:1432369241474076692>",
+    "powers": "<a:powersheaven:1400669588596719679>",
+    "special": "<a:specialheaven1:1400670272352161815>",
+    "special2": "<a:special2heaven:1400670604121739385>",
+    "girls": "<a:girlsheaven:1400671165885710386>",
+    "remove": "<a:removeheaven:1400671588935798815>",
+    "click": "<a:clickheaven:1400671930834747432>",
+    "ticket": "🎫",
+}
+
+# 🖼️ IMAGES / LOGOS / BANNERS
+# Socials keeps its small thumbnail. Other main panels use panel_banner as a BIG image.
+IMAGES = {
+    "moon_logo": "https://i.imgur.com/vHqB5o2.png",
+    "panel_banner": "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&",
+    "role_request": "https://i.imgur.com/moon_night_banner.png",
+}
+
+# 🔗 LINKS — change these when your socials/ticket links change
+LINKS = {
+    "instagram": "https://instagram.com",
+    "tiktok": "https://tiktok.com",
+    "ig_group": "https://instagram.com",
+    "store": "https://store.moonnight.com",
+    "need_help": "https://discord.com",
+    "ticket": f"https://discord.com/channels/{CHANNEL_IDS['ticket']}",
+    "discord_terms": "https://discord.com/terms",
+    "discord_guidelines": "https://discord.com/guidelines",
+}
+
 XP_COOLDOWN = 45
 DATA_FILE = "moon_night_data.json"
 
@@ -140,8 +236,16 @@ YTDL_OPTIONS = {
 }
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
-# Color Palette (Dark Theme / Night Blue Aesthetic)
+# 🎨 Embed color — change this HEX if you want another theme color.
 EMBED_COLOR = 0x2b2d31
+
+def channel_mention(name: str) -> str:
+    channel_id = CHANNEL_IDS.get(name, 0)
+    return f"<#{channel_id}>" if channel_id else "#not-configured"
+
+def role_mention(name: str) -> str:
+    role_id = ROLE_IDS.get(name, 0)
+    return f"<@&{role_id}>" if role_id else "@role-not-configured"
 
 intents = discord.Intents.default()
 intents.members = True
@@ -303,25 +407,25 @@ def is_owner_or_admin():
 class SocialsView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(Button(label="Instagram", style=ButtonStyle.link, url="https://instagram.com"))
-        self.add_item(Button(label="Tiktok", style=ButtonStyle.link, url="https://tiktok.com"))
-        self.add_item(Button(label="IG Group", style=ButtonStyle.link, url="https://instagram.com"))
-        self.add_item(Button(label="Store", style=ButtonStyle.link, url="https://store.moonnight.com"))
+        self.add_item(Button(label="Instagram", style=ButtonStyle.link, url=LINKS["instagram"]))
+        self.add_item(Button(label="Tiktok", style=ButtonStyle.link, url=LINKS["tiktok"]))
+        self.add_item(Button(label="IG Group", style=ButtonStyle.link, url=LINKS["instagram"]))
+        self.add_item(Button(label="Store", style=ButtonStyle.link, url=LINKS["store"]))
 
 def get_socials_embed():
     embed = discord.Embed(
-        title="Hey @everyone <:theCall_pink_hi:1509305726655402185>",
+        title=f"Hey @everyone {EMOJIS['hi']}",
         description=(
             "-# > 𝗦𝘁𝗮𝘆 𝗰𝗼𝗻𝗻𝗲𝗰𝘁𝗲𝗱 𝘄𝗶𝘁𝗵 **𝗠𝗼𝗼𝗻 𝗡𝗶𝗴𝗵𝘁** 𝗼𝗻 𝗮𝗹𝗹 𝗼𝘂𝗿 𝗽𝗹𝗮𝘁𝗳𝗼𝗿𝗺𝘀.\n\n"
-            "### * <:INSTA:1532413334261993602> **Instagram :** *** Follow us for news & highlights. ***\n"
-            "### * <:TIKTOK:1532413262669283451> **TikTok :** ***Follow us for videos & updates***\n"
-            "### * <:popcornpandita:1529830303483429025> **IG Group :** *** Stay close to the community. ***\n"
-            "### * <:5143storeg:1532413144876585056> **Store :** *** Shop exclusive Moon Night items. ***\n\n"
-            "-# 𝑴𝒐𝒐𝒏 𝑵𝒊𝒈𝒉𝒕 𝑾𝒉𝒆𝒓𝒆 𝑴𝒐𝒎𝒆𝒏𝒕𝒔 𝑩𝒆𝒄𝒐𝒎𝒆 𝑩𝒆𝒎𝒐𝒓𝒊𝒆𝒔 <:bunny_moon:1532388030411833344>"
+            f"### * {EMOJIS['instagram']} **Instagram :** *** Follow us for news & highlights. ***\n"
+            f"### * {EMOJIS['tiktok']} **TikTok :** ***Follow us for videos & updates***\n"
+            f"### * {EMOJIS['ig_group']} **IG Group :** *** Stay close to the community. ***\n"
+            f"### * {EMOJIS['store']} **Store :** *** Shop exclusive Moon Night items. ***\n\n"
+            f"-# 𝑴𝒐𝒐𝒏 𝑵𝒊𝒈𝒉𝒕 𝑾𝒉𝒆𝒓𝒆 𝑴𝒐𝒎𝒆𝒏𝒕𝒔 𝑩𝒆𝒄𝒐𝒎𝒆 𝑩𝒆𝒎𝒐𝒓𝒊𝒆𝒔 {EMOJIS['moon']}"
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
+    embed.set_thumbnail(url=IMAGES["moon_logo"])
     return embed
 
 
@@ -345,14 +449,14 @@ def get_stats_embed(guild: discord.Guild):
     embed = discord.Embed(
         title="Moon Night Statistics",
         description=(
-            f"- <:Fams:1451145463511384094> **Total Members:** `{total_members}` ⁘\n"
-            f"- <:voice:1451145649801269420> **Active in Voice:** `{voice_count}` ⁘\n"
-            f"- <:premium:1451145621246312529> **Boosters:** `{boosters_count}` ⁘\n\n"
+            f"- {EMOJIS['members']} **Total Members:** `{total_members}` ⁘\n"
+            f"- {EMOJIS['voice']} **Active in Voice:** `{voice_count}` ⁘\n"
+            f"- {EMOJIS['premium']} **Boosters:** `{boosters_count}` ⁘\n\n"
             "Stay active, and enjoy your time in Moon Night"
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
+    embed.set_image(url=IMAGES["panel_banner"])
     embed.set_footer(text="Stay Active, And Enjoy Your Time in @Moon Night")
     return embed
 
@@ -363,23 +467,23 @@ def get_stats_embed(guild: discord.Guild):
 class RulesView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(Button(label="• Join Need Help!", style=ButtonStyle.link, url="https://discord.com"))
-        self.add_item(Button(label="• Open A Ticket!", style=ButtonStyle.link, url="https://discord.com/channels/1482902524376780932"))
+        self.add_item(Button(label="• Join Need Help!", style=ButtonStyle.link, url=LINKS["need_help"]))
+        self.add_item(Button(label="• Open A Ticket!", style=ButtonStyle.link, url=LINKS["ticket"]))
 
 def get_rules_embed():
     embed = discord.Embed(
         description=(
             "> 𝗧𝗼 𝗺𝗮𝗸𝗲 𝗦𝘂𝗿𝗲 𝗲𝘃𝗲𝗿𝘆𝗼𝗻𝗲 𝗲𝗻𝗷𝗼𝘆, 𝗽𝗹𝗲𝗮𝘀𝗲 𝗳𝗼𝗹𝗹𝗼𝘄 𝘁𝗵𝗼𝘀𝗲 𝗴𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 :\n\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ Follow the [Discord TOS](https://discord.com/terms) and The [Discord Community Guidlines](https://discord.com/guidelines)**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Aya NSFW content f server = jail__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Respect aya member f server, kifma kan!__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Abusing any power treportat biha b preuve = warn ⇝ remove role__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Need help daret bach it7alo lmachakil, machi bach trolli, troll f nh = blacklist n.h.__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Sbek chi wahd 3ndo role (staff, high role, admin...) matseboch, tla3 need help reporti bih, ghadi itremova lih role__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Staff provoque 3liha punishment. pd: 3essas 9damet, jib chi haja jdida__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Bghiti trolli, tseb, tla9 sb's, dir one tap dialek, ou lockiha (.v lock) ou hara mat3ich, room opened = respect the rules!__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Abusa 3lik chi wahed 3ndo role (staff, high role, admin...) tla3 n.h. wla 7el ticket hna : <#1482902524376780932> ou ghadi itremova lih role__**\n"
-            "<a:estrellasbrillando:1442626060134121472> **⇝ __Pub ou pub vc 3liha jail, chi wahd spammak, wla dar pub vc, tla3 need help ou report it (don't forget screen / record)__**\n\n"
+            f"{EMOJIS['rules_star']} **⇝ Follow the [Discord TOS](https://discord.com/terms) and The [Discord Community Guidlines](https://discord.com/guidelines)**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Aya NSFW content f server = jail__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Respect aya member f server, kifma kan!__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Abusing any power treportat biha b preuve = warn ⇝ remove role__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Need help daret bach it7alo lmachakil, machi bach trolli, troll f nh = blacklist n.h.__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Sbek chi wahd 3ndo role (staff, high role, admin...) matseboch, tla3 need help reporti bih, ghadi itremova lih role__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Staff provoque 3liha punishment. pd: 3essas 9damet, jib chi haja jdida__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Bghiti trolli, tseb, tla9 sb's, dir one tap dialek, ou lockiha (.v lock) ou hara mat3ich, room opened = respect the rules!__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Abusa 3lik chi wahed 3ndo role (staff, high role, admin...) tla3 n.h. wla 7el ticket hna : {channel_mention('ticket')} ou ghadi itremova lih role__**\n"
+            f"{EMOJIS['rules_star']} **⇝ __Pub ou pub vc 3liha jail, chi wahd spammak, wla dar pub vc, tla3 need help ou report it (don't forget screen / record)__**\n\n"
             "**⇾ __Have questions or issues? Our team is ready to help you!__**\n"
             "**⇾ __Questions, problems, or requests? Open a ticket now!__**\n\n"
             "-# `© 2026 Moon Night™. All rights reserved.`"
@@ -387,7 +491,7 @@ def get_rules_embed():
         color=EMBED_COLOR
     )
     embed.set_author(name="⠀" * 15 + "・Moon Night : Rules・" + "⠀" * 15)
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
+    embed.set_image(url=IMAGES["panel_banner"])
     return embed
 
 
@@ -396,27 +500,27 @@ def get_rules_embed():
 # ==========================================
 def get_map_embed():
     embed = discord.Embed(
-        title="<a:welcome:1442626577690132663> ◜__Welcome To Moon Night!__◞",
+        title=f"{EMOJIS['welcome']} ◜__Welcome To Moon Night!__◞",
         description=(
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902413554745638>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel to post the latest news!`\n\n"
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902414997852381>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel where are the rules are posted, you must check it!!`\n\n"
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902461168615465>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel to get your server profile roles!`\n\n"
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902427064864833>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel to make your way through community work team!`\n\n"
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902490549850184>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel to chat and having fun with server members!`\n\n"
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902491711541328>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel to use server bots commands!`\n\n"
-            "<a:channelutility:1444868927262822582> **⇝ <#1482902422065123338>**\n"
-            "<:arrowblancasincentro:1444869479250002021> `Official channel to create your temporary voice channel!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('news')}**\n"
+            f"{EMOJIS['arrow']} `Official channel to post the latest news!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('rules')}**\n"
+            f"{EMOJIS['arrow']} `Official channel where are the rules are posted, you must check it!!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('self_roles')}**\n"
+            f"{EMOJIS['arrow']} `Official channel to get your server profile roles!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('apply')}**\n"
+            f"{EMOJIS['arrow']} `Official channel to make your way through community work team!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('general')}**\n"
+            f"{EMOJIS['arrow']} `Official channel to chat and having fun with server members!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('commands')}**\n"
+            f"{EMOJIS['arrow']} `Official channel to use server bots commands!`\n\n"
+            f"{EMOJIS['channel']} **⇝ {channel_mention('temp_voice')}**\n"
+            f"{EMOJIS['arrow']} `Official channel to create your temporary voice channel!`\n\n"
             "-# `© 2026 Moon Night. All rights reserved.`"
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
+    embed.set_image(url=IMAGES["panel_banner"])
     return embed
 
 
@@ -459,7 +563,7 @@ def get_apply_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
+    embed.set_image(url=IMAGES["panel_banner"])
     return embed
 
 
@@ -471,14 +575,14 @@ class BoosterRolesView(View):
         super().__init__(timeout=None)
 
         booster_roles = [
-            ("Nickname Perm", 1523714779032584363),
-            ("Moon night 's", 1508497154313027675),
-            ("Soundboard perm", 1482902118137462896),
-            ("Pic Perm", 1482902117693001898),
-            ("Link Perm", 1482902116858331217),
-            ("Bug hunter", 1482902047236952117),
-            ("Very Important people", 1482902046653943870),
-            ("Special Member ★", 1482902043558547650)
+            ("Nickname Perm", ROLE_IDS["booster_nickname"]),
+            ("Moon night 's", ROLE_IDS["booster_moon"]),
+            ("Soundboard perm", ROLE_IDS["booster_soundboard"]),
+            ("Pic Perm", ROLE_IDS["booster_pic"]),
+            ("Link Perm", ROLE_IDS["booster_link"]),
+            ("Bug hunter", ROLE_IDS["booster_bughunter"]),
+            ("Very Important people", ROLE_IDS["booster_vip"]),
+            ("Special Member ★", ROLE_IDS["booster_special"])
         ]
 
         for label, role_id in booster_roles:
@@ -501,14 +605,14 @@ class BoosterRolesView(View):
 
             # Only one booster perk role at a time.
             booster_role_ids = {
-                1523714779032584363,
-                1508497154313027675,
-                1482902118137462896,
-                1482902117693001898,
-                1482902116858331217,
-                1482902047236952117,
-                1482902046653943870,
-                1482902043558547650
+                ROLE_IDS["booster_nickname"],
+                ROLE_IDS["booster_moon"],
+                ROLE_IDS["booster_soundboard"],
+                ROLE_IDS["booster_pic"],
+                ROLE_IDS["booster_link"],
+                ROLE_IDS["booster_bughunter"],
+                ROLE_IDS["booster_vip"],
+                ROLE_IDS["booster_special"]
             }
 
             if role in interaction.user.roles:
@@ -543,43 +647,27 @@ def get_booster_embed():
         title="৳ Choose your booster role",
         description=(
             "-# Pick one of the roles down as a thanks for boosting!\n\n"
-            "> <@&1523714779032584363>\n"
-            "> <@&1508497154313027675>\n"
-            "> <@&1482902118137462896>\n"
-            "> <@&1482902117693001898>\n"
-            "> <@&1482902116858331217>\n"
-            "> <@&1482902047236952117>\n"
-            "> <@&1482902046653943870>\n"
-            "> <@&1482902043558547650>\n\n"
+            f"> {role_mention('booster_nickname')}\n"
+            f"> {role_mention('booster_moon')}\n"
+            f"> {role_mention('booster_soundboard')}\n"
+            f"> {role_mention('booster_pic')}\n"
+            f"> {role_mention('booster_link')}\n"
+            f"> {role_mention('booster_bughunter')}\n"
+            f"> {role_mention('booster_vip')}\n"
+            f"> {role_mention('booster_special')}\n\n"
             "-# © 2026 Moon Night    #ɓαɕƘ's Lisa. All rights reserved."
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
+    embed.set_image(url=IMAGES["panel_banner"])
     return embed
 
 
 # ==========================================
 # 7. SELF ROLES PANEL (SITUATIONS, GENDER, GAMES)
 # ==========================================
-ROLE_IDS = {
-    # Situations
-    "role_heartless": 1482902155219304549,
-    "role_taken": 1482902157324849333,
-    "role_single": 1482902156364484661,
-    
-    # Genders
-    "role_female": 1482902134071754832,
-    "role_male": 1482902134545580123,
-    "role_trans": 1482902135000000000,
-    
-    # Games
-    "role_val": 1482902200000000001,
-    "role_ff": 1482902200000000002,
-    "role_pubg": 1482902200000000003,
-    "role_chess": 1482902200000000004,
-    "role_bs": 1482902200000000005,
-}
+# ROLE_IDS is configured in the EASY CUSTOMIZATION section at the top.
+
 
 async def toggle_role(interaction: Interaction, role_key: str):
     role_id = ROLE_IDS.get(role_key)
@@ -647,24 +735,24 @@ class GamesRolesView(View):
 
 def get_self_roles_data():
     e1 = discord.Embed(
-        title="<a:11pm_redflower:1508777764994416791> ⋮ __Situation Roles__ ⊹",
+        title=f"{EMOJIS['situation']} ⋮ __Situation Roles__ ⊹",
         description=(
             "> ## __What's your actual situation?__\n"
-            "> <@&1482902155219304549>\n"
-            "> <@&1482902157324849333>\n"
-            "> <@&1482902156364484661>\n\n"
+            f"> {role_mention('heartless')}\n"
+            f"> {role_mention('taken')}\n"
+            f"> {role_mention('single')}\n\n"
             "-# © 2026 Moon Night. All rights reserved."
         ),
         color=EMBED_COLOR
     )
 
     e2 = discord.Embed(
-        title="<:gendersheaven:1421638974287384747> ⋮ __Gender Roles__ ⊹",
+        title=f"{EMOJIS['gender']} ⋮ __Gender Roles__ ⊹",
         description=(
             "> ## __What's your gender?__\n"
-            "> <@&1482902134071754832>\n"
-            "> <@&1482902134545580123>\n"
-            "> <@&1482902135000000000>\n\n"
+            f"> {role_mention('female')}\n"
+            f"> {role_mention('male')}\n"
+            f"> {role_mention('trans')}\n\n"
             "-# © 2026 Moon Night. All rights reserved."
         ),
         color=EMBED_COLOR
@@ -731,23 +819,23 @@ def get_role_request_embed():
     embed = discord.Embed(
         title="◜__Moon Night's Role Request Panel__◞",
         description=(
-            "## <a:butterfly:1432369241474076692> You’ve Officially Unlocked The Right To Beg For Some Fancy Roles :\n\n"
-            "<a:powersheaven:1400669588596719679> **| Powers**\n"
+            f"## {EMOJIS['butterfly']} You’ve Officially Unlocked The Right To Beg For Some Fancy Roles :\n\n"
+            f"{EMOJIS['powers']} **| Powers**\n"
             "⇝ Unlock Special Functionalities And Privileges Within The Server\n\n"
-            "<a:specialheaven1:1400670272352161815> **| Special Roles**\n"
+            f"{EMOJIS['special']} **| Special Roles**\n"
             "⇝ Showcase Your Identity With Distinctive And Stylish Roles\n\n"
-            "<a:special2heaven:1400670604121739385> **| Special Roles 2 (Only Given By Owners)**\n"
+            f"{EMOJIS['special2']} **| Special Roles 2 (Only Given By Owners)**\n"
             "⇝ Exclusive Titles Personally Assigned By The Server Owners\n\n"
-            "<a:girlsheaven:1400671165885710386> **| Girls Roles**\n"
+            f"{EMOJIS['girls']} **| Girls Roles**\n"
             "⇝ Express Your Personality With Roles Designed Especially For Girls\n\n"
-            "<a:removeheaven:1400671588935798815> **| Remove 1 Of Your Roles**\n"
+            f"{EMOJIS['remove']} **| Remove 1 Of Your Roles**\n"
             "⇝ Get Rid Of That Cringe Role You Picked At 3AM\n\n"
-            "<a:clickheaven:1400671930834747432> | Click The Select Menu Below And Choose Category\n\n"
+            f"{EMOJIS['click']} | Click The Select Menu Below And Choose Category\n\n"
             "-# **`© 2026 Moon Night™. All rights reserved.`**"
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/moon_night_banner.png")
+    embed.set_image(url=IMAGES["role_request"])
     return embed
 
 
@@ -1731,7 +1819,7 @@ async def help_command(interaction: Interaction):
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
+    embed.set_thumbnail(url=IMAGES["moon_logo"])
     embed.set_footer(text="Moon Night • Help Center")
     await interaction.response.send_message(embed=embed, view=HelpView(), ephemeral=True)
 
@@ -1944,9 +2032,9 @@ class TicketCloseView(View):
 @bot.tree.command(name="ticket", description="Create a private support ticket")
 async def ticket(interaction: Interaction):
     guild = interaction.guild
-    category = discord.utils.get(guild.categories, name="🎫 TICKETS")
+    category = discord.utils.get(guild.categories, name=f"{EMOJIS['ticket']} TICKETS")
     if category is None:
-        category = await guild.create_category("🎫 TICKETS")
+        category = await guild.create_category(f"{EMOJIS['ticket']} TICKETS")
 
     name = f"ticket-{interaction.user.id}"
     if discord.utils.get(guild.text_channels, name=name):
