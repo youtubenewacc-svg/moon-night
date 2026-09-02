@@ -1086,22 +1086,41 @@ class MusicPlayer:
             return "-af bass=g=10"
         return None
 
-    def ffmpeg_source(self, url):
+    def ffmpeg_source(self, track):
+        """Create an Opus stream directly from FFmpeg.
+
+        This avoids discord.py's native libopus encoder, which is the part
+        currently failing on Railway with OpusNotLoaded.
+        """
+        url = track["url"]
         filter_args = self.filter_args()
         before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
-        options = "-vn"
+
+        # YouTube/CDN URLs sometimes require the same HTTP headers that
+        # yt-dlp used when extracting the media URL.
+        headers = track.get("http_headers") or {}
+        if headers:
+            header_lines = "\r\n".join(
+                f"{k}: {v}" for k, v in headers.items()
+                if v is not None
+            ) + "\r\n"
+            before += f' -headers "{header_lines}"'
+
+        options = f"-vn -af volume={self.volume:.3f}"
         if filter_args:
-            options += f" {filter_args}"
+            # filter_args already starts with -af; combine it with volume.
+            options = f"-vn {filter_args},volume={self.volume:.3f}"
 
         executable = get_ffmpeg_executable()
 
-        audio = discord.FFmpegPCMAudio(
+        return discord.FFmpegOpusAudio(
             url,
             executable=executable,
             before_options=before,
             options=options,
+            codec="libopus",
+            bitrate=128,
         )
-        return discord.PCMVolumeTransformer(audio, volume=self.volume)
 
 
 def music_player(guild_id):
@@ -1141,6 +1160,7 @@ def _extract_info(query):
             "duration": info.get("duration") or 0,
             "thumbnail": info.get("thumbnail"),
             "uploader": info.get("uploader", "Unknown"),
+            "http_headers": info.get("http_headers") or {},
         }
 
 
@@ -1179,15 +1199,6 @@ async def ensure_voice(interaction: Interaction):
         await interaction.followup.send(
             "❌ Voice is unavailable because **davey** is not installed. "
             "Add `davey` to requirements.txt and redeploy with cleared cache.",
-            ephemeral=True,
-        )
-        return None
-
-    if not OPUS_OK or not discord.opus.is_loaded():
-        print("[VOICE] Opus is NOT loaded. Music playback cannot start.")
-        await interaction.followup.send(
-            "❌ Voice is unavailable because **Opus could not be loaded**. "
-            "Install `libopus0` on Railway and redeploy.",
             ephemeral=True,
         )
         return None
@@ -1264,10 +1275,6 @@ async def play_next(guild_id):
     if player.voice.is_playing() or player.voice.is_paused():
         return False
 
-    if not discord.opus.is_loaded():
-        print("[MUSIC] ERROR: Discord Opus is not loaded.")
-        return False
-
     if player.loop == "song" and player.current:
         track = player.current
     elif player.queue:
@@ -1287,7 +1294,7 @@ async def play_next(guild_id):
         return False
 
     try:
-        source = player.ffmpeg_source(track["url"])
+        source = player.ffmpeg_source(track)
     except Exception as exc:
         print(f"[FFMPEG SOURCE ERROR] {type(exc).__name__}: {exc!r}")
         return False
@@ -1507,8 +1514,8 @@ async def music_volume(
     player = music_player(interaction.guild.id)
     player.volume = percent / 100
     vc = interaction.guild.voice_client
-    if vc and vc.source and isinstance(vc.source, discord.PCMVolumeTransformer):
-        vc.source.volume = player.volume
+    # FFmpegOpusAudio applies volume inside FFmpeg when a new track starts.
+    # The current track is intentionally not restarted just to change volume.
     await interaction.response.send_message(
         f"🔊 Volume set to **{percent}%**."
     )
@@ -2437,10 +2444,10 @@ async def on_ready():
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is missing.")
 
-print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK} | Opus={OPUS_OK}")
+print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK} | NativeOpus={OPUS_OK}")
 if not OPUS_OK:
-    print("[WARNING] Opus is not loaded. Music playback will NOT work.")
+    print("[VOICE] Native libopus is unavailable, but music uses FFmpeg direct Opus and can still play.")
 else:
-    print("[VOICE] All voice dependencies are ready.")
+    print("[VOICE] Native Opus is available; FFmpeg direct Opus is used for music playback.")
 
 bot.run(BOT_TOKEN)
