@@ -8,6 +8,7 @@ import shutil
 from datetime import timedelta, datetime, timezone
 import discord
 import yt_dlp
+import ctypes.util
 
 try:
     import imageio_ffmpeg
