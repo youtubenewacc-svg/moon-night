@@ -11,6 +11,21 @@ from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
 
+# Voice dependency diagnostics (discord.py 2.6+ requires PyNaCl and davey for voice)
+try:
+    import nacl
+    PYNACL_OK = True
+except Exception as exc:
+    PYNACL_OK = False
+    print(f"[VOICE DEPENDENCY] PyNaCl unavailable: {exc!r}")
+
+try:
+    import davey
+    DAVEY_OK = True
+except Exception as exc:
+    DAVEY_OK = False
+    print(f"[VOICE DEPENDENCY] davey unavailable: {exc!r}")
+
 # ==========================================
 # CONFIGURATION & SETTINGS (Using Environment Variables)
 # ==========================================
@@ -937,7 +952,7 @@ async def on_member_remove(member: discord.Member):
 
 
 # ==========================================
-# MUSIC / VOICE SYSTEM — STABLE VERSION
+# MUSIC / VOICE SYSTEM
 # ==========================================
 MUSIC_PLAYERS = {}
 
@@ -959,21 +974,21 @@ class MusicPlayer:
             return "-af asetrate=48000*1.25,aresample=48000,atempo=0.8"
         if self.filter_name == "bassboost":
             return "-af bass=g=10"
-        return "-vn"
+        return None
 
     def ffmpeg_source(self, url):
-        before = (
-            "-reconnect 1 -reconnect_streamed 1 "
-            "-reconnect_delay_max 5 -reconnect_on_network_error 1 "
-            "-reconnect_on_http_error 4xx,5xx"
-        )
-        options = self.filter_args()
+        filter_args = self.filter_args()
+        before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+        options = "-vn"
+        if filter_args:
+            options += f" {filter_args}"
 
+        # executable='ffmpeg' makes the Railway/Nixpacks dependency explicit.
         audio = discord.FFmpegPCMAudio(
             url,
             executable="ffmpeg",
             before_options=before,
-            options=options
+            options=options,
         )
         return discord.PCMVolumeTransformer(audio, volume=self.volume)
 
@@ -985,43 +1000,33 @@ def music_player(guild_id):
 
 
 def _extract_info(query):
-    # yt-dlp[default] + Deno/EJS gives current YouTube support.
-    options = {
-        "format": "bestaudio/best",
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
-        "default_search": "ytsearch1",
-        "source_address": "0.0.0.0",
-        "nocheckcertificate": True,
-        "geo_bypass": True,
-        "skip_download": True,
-        "extract_flat": False,
-    }
-
+    # Keep extraction conservative: one audio result, no playlist download.
+    options = dict(YTDL_OPTIONS)
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(query, download=False)
-
-        if info and "entries" in info:
+        if "entries" in info:
             info = next((x for x in info["entries"] if x), None)
-
         if not info:
             raise RuntimeError("No audio result found.")
 
-        url = info.get("url")
-        webpage_url = (
-            info.get("webpage_url")
-            or info.get("original_url")
-            or query
-        )
+        direct_url = info.get("url")
+        if not direct_url:
+            # Some extractors expose formats instead of a top-level URL.
+            formats = info.get("formats") or []
+            audio_formats = [
+                f for f in formats
+                if f.get("url") and (f.get("acodec") not in (None, "none"))
+            ]
+            if audio_formats:
+                direct_url = audio_formats[-1]["url"]
 
-        if not url:
-            raise RuntimeError("No playable audio URL was returned by yt-dlp.")
+        if not direct_url:
+            raise RuntimeError("yt-dlp did not return a playable audio URL.")
 
         return {
             "title": info.get("title", "Unknown track"),
-            "url": url,
-            "webpage_url": webpage_url,
+            "url": direct_url,
+            "webpage_url": info.get("webpage_url") or info.get("original_url") or query,
             "duration": info.get("duration") or 0,
             "thumbnail": info.get("thumbnail"),
             "uploader": info.get("uploader", "Unknown"),
@@ -1033,190 +1038,179 @@ async def extract_track(query):
     return await loop.run_in_executor(None, _extract_info, query)
 
 
-async def ensure_voice(interaction):
-    """Connect/move the bot to the user's current voice channel.
+async def ensure_voice(interaction: Interaction):
+    """Connect the bot to the caller's VC safely.
 
-    IMPORTANT: callers must defer the interaction BEFORE calling this function.
-    This prevents Discord's 3-second interaction timeout while Voice Gateway
-    connection is being established.
+    IMPORTANT: every command calls interaction.response.defer() BEFORE this
+    function. Voice Gateway connection can take longer than Discord's 3-second
+    initial interaction deadline.
     """
     if not interaction.guild:
         await interaction.followup.send(
-            "❌ This command can only be used in a server.",
-            ephemeral=True
+            "❌ This command can only be used in a server.", ephemeral=True
         )
         return None
 
     if not interaction.user.voice or not interaction.user.voice.channel:
         await interaction.followup.send(
-            "❌ Join a voice channel first.",
-            ephemeral=True
+            "❌ Join a voice channel first.", ephemeral=True
+        )
+        return None
+
+    if not PYNACL_OK:
+        await interaction.followup.send(
+            "❌ Voice is unavailable because **PyNaCl** is not installed. "
+            "Check Railway dependencies and redeploy.", ephemeral=True
+        )
+        return None
+
+    if not DAVEY_OK:
+        await interaction.followup.send(
+            "❌ Voice is unavailable because **davey** is not installed. "
+            "Add `davey` to requirements.txt and redeploy with cleared cache.",
+            ephemeral=True,
         )
         return None
 
     target = interaction.user.voice.channel
     player = music_player(interaction.guild.id)
-
     vc = interaction.guild.voice_client
 
     try:
         if vc and vc.is_connected():
             player.voice = vc
-
-            if vc.channel.id != target.id:
+            if vc.channel != target:
                 await vc.move_to(target)
         else:
-            # timeout/reconnect are supported by discord.py VoiceChannel.connect
-            player.voice = await target.connect(
-                timeout=20.0,
-                reconnect=True,
-                self_deaf=True
-            )
+            # Explicit timeout + reconnect for Railway/cloud hosting.
+            player.voice = await target.connect(timeout=30.0, reconnect=True)
 
         return player
 
+    except RuntimeError as exc:
+        print(f"[VOICE RUNTIME ERROR] {exc!r}")
+        message = str(exc).strip() or "Voice runtime dependency error."
+        await interaction.followup.send(
+            f"❌ Voice connection error: `{message[:700]}`\n"
+            "Check the Railway logs for the full traceback.",
+            ephemeral=True,
+        )
+        return None
+
     except discord.Forbidden:
         await interaction.followup.send(
-            "❌ I need **View Channel, Connect and Speak** permissions "
-            "in that voice channel.",
-            ephemeral=True
+            "❌ I need **View Channel**, **Connect**, and **Speak** permissions "
+            "in that voice channel.", ephemeral=True
         )
         return None
 
     except discord.ClientException as exc:
-        print(f"[VOICE CLIENT ERROR] {type(exc).__name__}: {exc}")
+        print(f"[VOICE CLIENT ERROR] {exc!r}")
         await interaction.followup.send(
-            "❌ I couldn't connect to that voice channel. "
-            "Make sure I'm not already connected somewhere else.",
-            ephemeral=True
+            f"❌ Discord voice client error: `{str(exc)[:600]}`",
+            ephemeral=True,
         )
         return None
 
     except asyncio.TimeoutError:
-        print("[VOICE TIMEOUT] Discord Voice Gateway connection timed out.")
         await interaction.followup.send(
-            "❌ Voice connection timed out. Try `/join` again.",
-            ephemeral=True
+            "❌ Discord Voice connection timed out. Try `/join` again.",
+            ephemeral=True,
+        )
+        return None
+
+    except discord.HTTPException as exc:
+        print(f"[VOICE HTTP ERROR] {exc!r}")
+        await interaction.followup.send(
+            f"❌ Discord refused the voice connection: `{exc}`",
+            ephemeral=True,
         )
         return None
 
     except Exception as exc:
-        print(f"[VOICE ERROR] {type(exc).__name__}: {exc}")
+        print(f"[VOICE ERROR] {type(exc).__name__}: {exc!r}")
         await interaction.followup.send(
-            f"❌ Voice connection error: `{type(exc).__name__}`",
-            ephemeral=True
+            f"❌ Voice connection error: `{type(exc).__name__}: {str(exc)[:500]}`",
+            ephemeral=True,
         )
         return None
 
 
 async def play_next(guild_id):
     player = MUSIC_PLAYERS.get(guild_id)
-
     if not player or not player.voice or not player.voice.is_connected():
-        return False
+        return
 
-    async with player.lock:
-        if not player.voice or not player.voice.is_connected():
-            return False
+    if player.voice.is_playing() or player.voice.is_paused():
+        return
 
-        if player.voice.is_playing() or player.voice.is_paused():
-            return False
-
-        # Decide what should play next.
-        if player.loop == "song" and player.current:
-            track = player.current
-
-        elif player.queue:
-            if player.current and player.loop == "queue":
-                player.queue.append(player.current)
-
-            track = player.queue.pop(0)
+    if player.loop == "song" and player.current:
+        track = player.current
+    elif player.queue:
+        if player.current and player.loop == "queue":
+            player.queue.append(player.current)
+        track = player.queue.pop(0)
+        player.current = track
+    elif player.autoplay and player.current:
+        try:
+            query = f"ytsearch1:{player.current['title']} official audio"
+            track = await extract_track(query)
             player.current = track
-
-        elif player.autoplay and player.current:
-            try:
-                query = f"ytsearch1:{player.current['title']} official audio"
-                track = await extract_track(query)
-                player.current = track
-            except Exception as exc:
-                print(f"[AUTOPLAY ERROR] {type(exc).__name__}: {exc}")
-                return False
-
-        else:
-            return False
-
-        # Stream URLs from YouTube expire. Re-extract from the webpage URL
-        # before playing, so queued songs are much less likely to fail later.
-        try:
-            source_url = track.get("webpage_url") or track.get("url")
-            fresh_track = await extract_track(source_url)
-            track["url"] = fresh_track["url"]
-            track["title"] = fresh_track.get("title", track["title"])
-            track["thumbnail"] = fresh_track.get("thumbnail") or track.get("thumbnail")
-            track["uploader"] = fresh_track.get("uploader", track.get("uploader", "Unknown"))
-            track["duration"] = fresh_track.get("duration", track.get("duration", 0))
         except Exception as exc:
-            print(f"[REFRESH ERROR] {type(exc).__name__}: {exc}")
-            return False
+            print(f"[AUTOPLAY ERROR] {type(exc).__name__}: {exc!r}")
+            return
+    else:
+        return
 
+    try:
+        source = player.ffmpeg_source(track["url"])
+    except Exception as exc:
+        print(f"[FFMPEG SOURCE ERROR] {type(exc).__name__}: {exc!r}")
+        return
+
+    def after_play(error):
+        if error:
+            print(f"[MUSIC PLAYBACK ERROR] {error!r}")
         try:
-            source = player.ffmpeg_source(track["url"])
-        except Exception as exc:
-            print(f"[FFMPEG SOURCE ERROR] {type(exc).__name__}: {exc}")
-            return False
-
-        def after_play(error):
-            if error:
-                print(f"[PLAYBACK ERROR] {error}")
             asyncio.run_coroutine_threadsafe(
-                play_next(guild_id),
-                bot.loop
+                play_next(guild_id), bot.loop
             )
-
-        try:
-            player.voice.play(source, after=after_play)
-            return True
         except Exception as exc:
-            print(f"[VOICE PLAY ERROR] {type(exc).__name__}: {exc}")
-            try:
-                source.cleanup()
-            except Exception:
-                pass
-            return False
+            print(f"[PLAY NEXT CALLBACK ERROR] {exc!r}")
+
+    try:
+        player.voice.play(source, after=after_play)
+    except Exception as exc:
+        print(f"[VOICE PLAY ERROR] {type(exc).__name__}: {exc!r}")
+        try:
+            source.cleanup()
+        except Exception:
+            pass
 
 
 @bot.tree.command(name="join", description="Join your current voice channel")
 async def music_join(interaction: Interaction):
-    # MUST happen before any Voice Gateway operation.
-    await interaction.response.defer(ephemeral=True)
+    # MUST happen before any potentially slow Voice Gateway operation.
+    await interaction.response.defer()
 
     player = await ensure_voice(interaction)
     if player is None:
         return
 
     await interaction.followup.send(
-        f"🎵 Joined **{player.voice.channel.name}**. Ready to play music!",
-        ephemeral=True
+        f"🎵 Joined **{player.voice.channel.name}**. Ready to play music!"
     )
 
 
 @bot.tree.command(name="leave", description="Leave voice and clear the music queue")
 async def music_leave(interaction: Interaction):
-    await interaction.response.defer(ephemeral=True)
-
-    if not interaction.guild:
-        return await interaction.followup.send(
-            "❌ This command can only be used in a server.",
-            ephemeral=True
-        )
+    await interaction.response.defer()
 
     player = music_player(interaction.guild.id)
     vc = interaction.guild.voice_client
-
     if not vc:
         return await interaction.followup.send(
-            "❌ I'm not in a voice channel.",
-            ephemeral=True
+            "❌ I'm not in a voice channel.", ephemeral=True
         )
 
     player.queue.clear()
@@ -1226,76 +1220,52 @@ async def music_leave(interaction: Interaction):
 
     try:
         vc.stop()
-    except Exception:
-        pass
-
-    try:
         await vc.disconnect(force=True)
     except Exception as exc:
-        print(f"[DISCONNECT ERROR] {type(exc).__name__}: {exc}")
+        print(f"[LEAVE ERROR] {exc!r}")
+    finally:
+        player.voice = None
 
-    player.voice = None
-
-    await interaction.followup.send(
-        "👋 Left voice and cleared the music queue.",
-        ephemeral=True
-    )
+    await interaction.followup.send("👋 Left voice and cleared the queue.")
 
 
 @bot.tree.command(name="play", description="Play YouTube or SoundCloud audio")
 @app_commands.describe(query="YouTube/SoundCloud URL or song name")
 async def music_play(interaction: Interaction, query: str):
-    # Defer FIRST: voice connection + yt-dlp can take more than 3 seconds.
+    # Defer FIRST. Both voice connection and yt-dlp can take several seconds.
     await interaction.response.defer()
 
     player = await ensure_voice(interaction)
     if player is None:
         return
 
-    query = query.strip()
-    if not query:
-        return await interaction.followup.send(
-            "❌ Give me a YouTube/SoundCloud URL or a song name.",
-            ephemeral=True
-        )
-
     try:
-        track = await asyncio.wait_for(extract_track(query), timeout=45)
-    except asyncio.TimeoutError:
-        return await interaction.followup.send(
-            "❌ Audio search timed out. Try again with another query.",
-            ephemeral=True
-        )
+        track = await extract_track(query)
     except Exception as exc:
-        print(f"[YTDLP ERROR] {type(exc).__name__}: {exc}")
+        print(f"[YTDLP ERROR] {type(exc).__name__}: {exc!r}")
         return await interaction.followup.send(
-            f"❌ Couldn't find/play that track.\n`{str(exc)[:500]}`",
-            ephemeral=True
+            f"❌ Couldn't find/play that track.\n`{type(exc).__name__}: {str(exc)[:500]}`",
+            ephemeral=True,
         )
 
     player.queue.append(track)
     position = len(player.queue)
 
     if not player.voice.is_playing() and not player.voice.is_paused():
-        started = await play_next(interaction.guild.id)
-        if started:
-            position = "Now playing"
+        await play_next(interaction.guild.id)
+        position = "Now playing"
 
     embed = discord.Embed(
         title="🎵 Added to Moon Night Music",
         description=f"**{track['title']}**",
-        color=EMBED_COLOR
+        color=EMBED_COLOR,
     )
     embed.add_field(
         name="Artist / Uploader",
-        value=track["uploader"][:1024],
-        inline=True
+        value=track["uploader"],
+        inline=True,
     )
-    embed.add_field(
-        name="Queue",
-        value=f"`{position}`",
-        inline=True
-    )
+    embed.add_field(name="Queue", value=f"`{position}`", inline=True)
     if track.get("thumbnail"):
         embed.set_thumbnail(url=track["thumbnail"])
 
@@ -1307,8 +1277,7 @@ async def music_pause(interaction: Interaction):
     vc = interaction.guild.voice_client
     if not vc or not vc.is_playing():
         return await interaction.response.send_message(
-            "❌ Nothing is playing.",
-            ephemeral=True
+            "❌ Nothing is playing.", ephemeral=True
         )
     vc.pause()
     await interaction.response.send_message("⏸️ Music paused.")
@@ -1319,8 +1288,7 @@ async def music_resume(interaction: Interaction):
     vc = interaction.guild.voice_client
     if not vc or not vc.is_paused():
         return await interaction.response.send_message(
-            "❌ Music isn't paused.",
-            ephemeral=True
+            "❌ Music isn't paused.", ephemeral=True
         )
     vc.resume()
     await interaction.response.send_message("▶️ Music resumed.")
@@ -1331,11 +1299,12 @@ async def music_skip(interaction: Interaction):
     vc = interaction.guild.voice_client
     if not vc or not (vc.is_playing() or vc.is_paused()):
         return await interaction.response.send_message(
-            "❌ Nothing is playing.",
-            ephemeral=True
+            "❌ Nothing is playing.", ephemeral=True
         )
     vc.stop()
-    await interaction.response.send_message("⏭️ Skipped. Loading the next track...")
+    await interaction.response.send_message(
+        "⏭️ Skipped. Loading the next track..."
+    )
 
 
 @bot.tree.command(name="stop", description="Stop music and clear the queue")
@@ -1344,40 +1313,31 @@ async def music_stop(interaction: Interaction):
     player.queue.clear()
     player.current = None
     player.loop = "off"
-    player.autoplay = False
-
     vc = interaction.guild.voice_client
     if vc:
         vc.stop()
-
-    await interaction.response.send_message("⏹️ Music stopped and queue cleared.")
+    await interaction.response.send_message(
+        "⏹️ Music stopped and queue cleared."
+    )
 
 
 @bot.tree.command(name="queue", description="Show the current music queue")
 async def music_queue(interaction: Interaction):
     player = music_player(interaction.guild.id)
     lines = []
-
     if player.current:
         lines.append(f"🎶 **Now:** {player.current['title']}")
-
     for i, track in enumerate(player.queue[:15], 1):
         lines.append(f"`{i}.` {track['title']}")
-
     if not lines:
         lines = ["🌙 The music queue is empty."]
-
     embed = discord.Embed(
         title="🎵 Moon Night • Music Queue",
         description="\n".join(lines),
-        color=EMBED_COLOR
+        color=EMBED_COLOR,
     )
     embed.set_footer(
-        text=(
-            f"Loop: {player.loop} • "
-            f"Autoplay: {'ON' if player.autoplay else 'OFF'} • "
-            f"Filter: {player.filter_name}"
-        )
+        text=f"Loop: {player.loop} • Autoplay: {'ON' if player.autoplay else 'OFF'} • Filter: {player.filter_name}"
     )
     await interaction.response.send_message(embed=embed)
 
@@ -1387,46 +1347,40 @@ async def music_nowplaying(interaction: Interaction):
     player = music_player(interaction.guild.id)
     if not player.current:
         return await interaction.response.send_message(
-            "❌ Nothing is playing.",
-            ephemeral=True
+            "❌ Nothing is playing.", ephemeral=True
         )
-
     embed = discord.Embed(
         title="🎵 Now Playing",
         description=f"**{player.current['title']}**",
-        color=EMBED_COLOR
+        color=EMBED_COLOR,
     )
     embed.add_field(
         name="Artist / Uploader",
-        value=player.current["uploader"][:1024],
-        inline=True
+        value=player.current["uploader"],
+        inline=True,
     )
     embed.add_field(
         name="Volume",
         value=f"`{int(player.volume * 100)}%`",
-        inline=True
+        inline=True,
     )
-    embed.add_field(
-        name="Loop",
-        value=f"`{player.loop}`",
-        inline=True
-    )
+    embed.add_field(name="Loop", value=f"`{player.loop}`", inline=True)
     if player.current.get("thumbnail"):
         embed.set_thumbnail(url=player.current["thumbnail"])
-
     await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="volume", description="Set music volume from 0% to 200%")
 @app_commands.describe(percent="Volume percentage: 0-200")
-async def music_volume(interaction: Interaction, percent: app_commands.Range[int, 0, 200]):
+async def music_volume(
+    interaction: Interaction,
+    percent: app_commands.Range[int, 0, 200],
+):
     player = music_player(interaction.guild.id)
     player.volume = percent / 100
-
     vc = interaction.guild.voice_client
     if vc and vc.source and isinstance(vc.source, discord.PCMVolumeTransformer):
         vc.source.volume = player.volume
-
     await interaction.response.send_message(
         f"🔊 Volume set to **{percent}%**."
     )
@@ -1437,14 +1391,12 @@ async def music_volume(interaction: Interaction, percent: app_commands.Range[int
 @app_commands.choices(mode=[
     app_commands.Choice(name="Off", value="off"),
     app_commands.Choice(name="Song", value="song"),
-    app_commands.Choice(name="Queue", value="queue")
+    app_commands.Choice(name="Queue", value="queue"),
 ])
 async def music_loop(interaction: Interaction, mode: app_commands.Choice[str]):
     player = music_player(interaction.guild.id)
     player.loop = mode.value
-    await interaction.response.send_message(
-        f"🔁 Loop mode: **{mode.name}**."
-    )
+    await interaction.response.send_message(f"🔁 Loop mode: **{mode.name}**.")
 
 
 @bot.tree.command(name="autoplay", description="Toggle automatic music when the queue ends")
@@ -1459,14 +1411,15 @@ async def music_autoplay(interaction: Interaction, enabled: bool):
 
 @bot.tree.command(name="remove", description="Remove a queued track by position")
 @app_commands.describe(position="Queue position, starting at 1")
-async def music_remove(interaction: Interaction, position: app_commands.Range[int, 1, 1000]):
+async def music_remove(
+    interaction: Interaction,
+    position: app_commands.Range[int, 1, 1000],
+):
     player = music_player(interaction.guild.id)
     if position > len(player.queue):
         return await interaction.response.send_message(
-            "❌ That queue position doesn't exist.",
-            ephemeral=True
+            "❌ That queue position doesn't exist.", ephemeral=True
         )
-
     track = player.queue.pop(position - 1)
     await interaction.response.send_message(
         f"🗑️ Removed **{track['title']}** from the queue."
@@ -1488,19 +1441,18 @@ async def music_clearqueue(interaction: Interaction):
 @app_commands.choices(name=[
     app_commands.Choice(name="Off", value="off"),
     app_commands.Choice(name="Nightcore", value="nightcore"),
-    app_commands.Choice(name="Bassboost", value="bassboost")
+    app_commands.Choice(name="Bassboost", value="bassboost"),
 ])
 async def music_filter(interaction: Interaction, name: app_commands.Choice[str]):
     player = music_player(interaction.guild.id)
     player.filter_name = name.value
-
     vc = interaction.guild.voice_client
+
     if vc and (vc.is_playing() or vc.is_paused()) and player.current:
         was_paused = vc.is_paused()
         vc.stop()
         await asyncio.sleep(0.25)
         await play_next(interaction.guild.id)
-
         if was_paused and vc.is_playing():
             vc.pause()
 
@@ -2289,8 +2241,6 @@ async def moon_leave_listener(member: discord.Member):
 
 @bot.listen("on_voice_state_update")
 async def temporary_voice_listener(member, before, after):
-    if member.bot:
-        return
     if TEMP_VC_CHANNEL_ID and after.channel and after.channel.id == TEMP_VC_CHANNEL_ID:
         try:
             channel = await member.guild.create_voice_channel(
@@ -2355,5 +2305,10 @@ async def on_ready():
     for guild in bot.guilds:
         update_peak_members(guild)
     print(f"Logged in as {bot.user.name} ({bot.user.id})")
+
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN environment variable is missing.")
+
+print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK}")
 
 bot.run(BOT_TOKEN)
