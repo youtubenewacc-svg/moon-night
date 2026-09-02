@@ -54,10 +54,198 @@ def is_owner_or_admin_ctx():
 
 
 # ==========================================
-# 1. PANELS & EMBEDS
+# 1. ORIGINAL EMBEDS & PANELS
 # ==========================================
 
-# --- SOCIALS PANEL ---
+# --- RULES PANEL (L-QDIM) ---
+class RulesView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(Button(label="• Join Need Help!", style=ButtonStyle.link, url="https://discord.com/channels/1482902524376780932"))
+        self.add_item(Button(label="• Open A Ticket!", style=ButtonStyle.link, url="https://discord.com/channels/1482902524376780932"))
+
+def get_rules_embed():
+    embed = discord.Embed(
+        title="• Moon Night : Rules •",
+        description=(
+            "> To make Sure everyone enjoy, please follow those guidelines :\n\n"
+            "id ➔ Follow the [Discord TOS](https://dis.gd/tos) and The [Discord Community Guidelines](https://dis.gd/guidelines)\n"
+            "id ➔ **Aya NSFW content f server = jail**\n"
+            "id ➔ **Respect aya member f server, kifma kan!**\n"
+            "id ➔ **Abusing any power treportat biha b preuve = warn ➔ remove role**\n"
+            "id ➔ **Need help daret bach it7alo lmachakil, machi bach trolli, troll f nh = blacklist n.h.**\n"
+            "id ➔ **Sbek chi wahd 3ndo role (staff, high role, admin...) matseboch, tla3 need help reporti bih, ghadi itremova lih role**\n"
+            "id ➔ **Staff provoque 3liha punishment. pd: 3essas 9damet, jib chi haja jdida**\n"
+            "id ➔ **Bghiti trolli, tseb, tla9 sb's, dir one tap dialek, ou lockiha (.v lock) ou hara mat3ich, room opened = respect the rules!**\n"
+            "id ➔ **Abusa 3lik chi wahed 3ndo role (staff, high role, admin...) tla3 n.h. wla 7el ticket hna : <#1482902524376780932> ou ghadi it7ayed lih role**\n"
+            "id ➔ **Pub ou pub vc 3liha jail, chi wahd spammak, wla dar pub vc, tla3 need help ou report it (don't forget screen / record)**\n\n"
+            "id ➔ **Have questions or issues? Our team is ready to help you!**\n"
+            "id ➔ **Questions, problems, or requests? Open a ticket now!**"
+        ),
+        color=EMBED_COLOR
+    )
+    embed.set_footer(text="© 2026 Moon Night™. All rights reserved.")
+    return embed
+
+
+# --- SELF ROLES PANEL (L-QDIM B 3 EMBEDS & SELECT MENU) ---
+class SelfRolesGamesSelect(Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Valorant", emoji="🎮", value="game_val"),
+            discord.SelectOption(label="GTA V / Grand RP", emoji="🚗", value="game_gta"),
+            discord.SelectOption(label="League of Legends", emoji="⚔️", value="game_lol"),
+            discord.SelectOption(label="Minecraft", emoji="⛏️", value="game_mc"),
+            discord.SelectOption(label="Free Fire", emoji="🔥", value="game_ff")
+        ]
+        super().__init__(placeholder="Select A Games Role!", options=options, custom_id="self_game_select")
+
+    async def callback(self, interaction: Interaction):
+        await interaction.response.send_message(f"✅ Selected: {self.values[0]}", ephemeral=True)
+
+class SelfRolesView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(SelfRolesGamesSelect())
+
+    @discord.ui.button(label="• Heartless", style=ButtonStyle.secondary, custom_id="role_heartless")
+    async def btn_heartless(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Toggle Heartless Role", ephemeral=True)
+
+    @discord.ui.button(label="• Taken", style=ButtonStyle.secondary, custom_id="role_taken")
+    async def btn_taken(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Toggle Taken Role", ephemeral=True)
+
+    @discord.ui.button(label="• Single", style=ButtonStyle.secondary, custom_id="role_single")
+    async def btn_single(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Toggle Single Role", ephemeral=True)
+
+    @discord.ui.button(label="• Female", style=ButtonStyle.secondary, custom_id="role_female", row=1)
+    async def btn_female(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Toggle Female Role", ephemeral=True)
+
+    @discord.ui.button(label="• Male", style=ButtonStyle.secondary, custom_id="role_male", row=1)
+    async def btn_male(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Toggle Male Role", ephemeral=True)
+
+    @discord.ui.button(label="• Trans", style=ButtonStyle.secondary, custom_id="role_trans", row=1)
+    async def btn_trans(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("Toggle Trans Role", ephemeral=True)
+
+def get_selfroles_embeds():
+    embed1 = discord.Embed(
+        title=":11pm_redflower: : Situation Roles ÷",
+        description="### What's your actual situation?\n@rôle inconnu\n@rôle inconnu\n@rôle inconnu",
+        color=EMBED_COLOR
+    )
+    embed1.set_footer(text="© 2026 Moon Night. All rights reserved.")
+
+    embed2 = discord.Embed(
+        title=":gendersheaven: : Gender Roles ÷",
+        description="### What's your gender?\n@rôle inconnu\n@rôle inconnu\n@rôle inconnu",
+        color=EMBED_COLOR
+    )
+    embed2.set_footer(text="© 2026 Moon Night. All rights reserved.")
+
+    embed3 = discord.Embed(
+        title=":game: : Games Roles ÷",
+        description="### Do you play any games?",
+        color=EMBED_COLOR
+    )
+    embed3.set_footer(text="© 2026 Moon Night™. All rights reserved.")
+
+    return [embed1, embed2, embed3]
+
+
+# --- ROLE REQUEST PANEL (L-QDIM B SELECT MENU) ---
+class RoleRequestCategorySelect(Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Powers", description="Special Functionalities & Privileges", emoji="⚡", value="req_powers"),
+            discord.SelectOption(label="Special Roles", description="Showcase Your Identity", emoji="💎", value="req_special"),
+            discord.SelectOption(label="Special Roles 2", description="Given By Owners", emoji="🎩", value="req_special2"),
+            discord.SelectOption(label="Girls Roles", description="Designed Especially For Girls", emoji="🌸", value="req_girls"),
+            discord.SelectOption(label="Remove 1 Of Your Roles", description="Get Rid Of Cringe Roles", emoji="⭐", value="req_remove")
+        ]
+        super().__init__(placeholder="Select A Role Category", options=options, custom_id="role_req_select")
+
+    async def callback(self, interaction: Interaction):
+        await interaction.response.send_message(f"📩 Opened category: **{self.values[0]}**", ephemeral=True)
+
+class RoleRequestView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(RoleRequestCategorySelect())
+
+def get_rolerequest_embed():
+    embed = discord.Embed(
+        title="💦 You've Officially Unlocked The Right To Beg For Some Fancy Roles :",
+        description=(
+            ":powersheaven: | **Powers**\n➔ Unlock Special Functionalities And Privileges Within The Server\n\n"
+            ":specialheaven1: | **Special Roles**\n➔ Showcase Your Identity With Distinctive And Stylish Roles\n\n"
+            ":special2heaven: | **Special Roles 2 (Only Given By Owners)**\n➔ Exclusive Titles Personally Assigned By The Server Owners\n\n"
+            ":girlsheaven: | **Girls Roles**\n➔ Express Your Personality With Roles Designed Especially For Girls\n\n"
+            ":removeheaven: | **Remove 1 Of Your Roles**\n➔ Get Rid Of That Cringe Role You Picked At 3AM\n\n"
+            ":clickheaven: | **Click The Select Menu Below And Choose Category**"
+        ),
+        color=EMBED_COLOR
+    )
+    embed.set_footer(text="© 2026 Moon Night™. All rights reserved.")
+    return embed
+
+
+# --- STAFF APPLY PANEL (L-QDIM) ---
+class StaffApplyView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Apply for Staff", style=ButtonStyle.success, custom_id="btn_apply_staff")
+    async def apply_staff(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("📝 Staff application form coming soon!", ephemeral=True)
+
+    @discord.ui.button(label="Apply for Game Mods", style=ButtonStyle.success, custom_id="btn_apply_gamemods")
+    async def apply_gamemods(self, interaction: Interaction, button: Button):
+        await interaction.response.send_message("🎮 Game Mods application form coming soon!", ephemeral=True)
+
+def get_staff_apply_embed():
+    embed = discord.Embed(
+        title="Staff Apply For Moon Night ©",
+        description=(
+            "Moon Night © is now accepting staff applications! Be a part of our family! "
+            "We would love to bring new people to our team that would help grow this family together!\n\n"
+            "**• Staff**\n"
+            "• At Least 17 Years Old\n"
+            "• Voice Level 5+\n"
+            "• Active & Respectful\n\n"
+            "**• Game Mods**\n"
+            "• At Least 17 Years Old\n"
+            "• Voice Level 5+\n"
+            "• Active & Respectful"
+        ),
+        color=EMBED_COLOR
+    )
+    embed.set_footer(text="Copyright © 2026 Lisa X Moon Night ©")
+    return embed
+
+
+# --- MAP GUIDE PANEL (L-QDIM) ---
+def get_map_guide_embed():
+    embed = discord.Embed(
+        title="🗺️ Moon Night - Server Map & Guide",
+        description=(
+            "Welcome to **Moon Night**! Here is your quick guide to navigate the server:\n\n"
+            "📌 <#1482902524376780932> - Read server rules & info.\n"
+            "🎭 **#self-roles** - Pick your roles.\n"
+            "💬 **#general** - Chat with community.\n"
+            "🔊 **Voice Channels** - Hangout & play games."
+        ),
+        color=EMBED_COLOR
+    )
+    embed.set_footer(text="© 2026 Moon Night™. All rights reserved.")
+    return embed
+
+
+# --- SOCIALS & STATS (L-JDAD) ---
 class SocialsView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -68,22 +256,19 @@ class SocialsView(View):
 
 def get_socials_embed():
     embed = discord.Embed(
-        title="Hey @everyone <:theCall_pink_hi:1509305726655402185>",
+        title="Hey @everyone",
         description=(
             "-# > 𝗦𝘁𝗮𝘆 𝗰𝗼𝗻𝗻𝗲𝗰𝘁𝗲𝗱 𝘄𝗶𝘁𝗵 **𝗠𝗼𝗼𝗻 𝗡𝗶𝗴𝗵𝘁** 𝗼𝗻 𝗮𝗹𝗹 𝗼𝘂𝗿 𝗽𝗹𝗮𝘁𝗳𝗼𝗿𝗺𝘀.\n\n"
-            "### * <:INSTA:1532413334261993602> **Instagram :** *** Follow us for news & highlights. ***\n"
-            "### * <:TIKTOK:1532413262669283451> **TikTok :** ***Follow us for videos & updates***\n"
-            "### * <:popcornpandita:1529830303483429025> **IG Group :** *** Stay close to the community. ***\n"
-            "### * <:5143storeg:1532413144876585056> **Store :** *** Shop exclusive Moon Night items. ***\n\n"
-            "-# 𝑴𝒐𝒐𝒏 𝑵𝒊𝒈𝒉𝒕 𝑾𝒉𝒆𝒓𝒆 𝑴𝒐𝒎𝒆𝒏𝒕𝒔 𝑩𝒆𝒄𝒐𝒎𝒆 𝑩𝒆𝒎𝒐𝒓𝒊𝒆𝒔 <:bunny_moon:1532388030411833344>"
+            "### * **Instagram :** *** Follow us for news & highlights. ***\n"
+            "### * **TikTok :** ***Follow us for videos & updates***\n"
+            "### * **IG Group :** *** Stay close to the community. ***\n"
+            "### * **Store :** *** Shop exclusive Moon Night items. ***\n\n"
+            "-# 𝑴𝒐𝒐𝒏 𝑵𝒊𝒈𝒉𝒕 𝑾𝒉𝒆𝒓𝒆 𝑴𝒐𝒎𝒆𝒏𝒕𝒔 𝑩𝒆𝒄𝒐𝒎𝒆 𝑩𝒆𝒎𝒐𝒓𝒊𝒆𝒔"
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
     return embed
 
-
-# --- STATS PANEL ---
 class StatsView(View):
     def __init__(self, guild: discord.Guild):
         super().__init__(timeout=None)
@@ -96,112 +281,11 @@ def get_stats_embed(guild: discord.Guild):
     embed = discord.Embed(
         title="Moon Night Statistics",
         description=(
-            f"- <:Fams:1451145463511384094> **Total Members:** `{guild.member_count if guild else 8628}` ⁘\n"
-            f"- <:voice:1451145649801269420> **Active in Voice:** `{sum(len(c.members) for c in guild.voice_channels) if guild else 107}` ⁘\n"
-            f"- <:premium:1451145621246312529> **Boosters:** `{guild.premium_subscription_count if guild else 48}` ⁘\n\n"
+            f"- **Total Members:** `{guild.member_count if guild else 0}` ⁘\n"
+            f"- **Active in Voice:** `{sum(len(c.members) for c in guild.voice_channels) if guild else 0}` ⁘\n"
+            f"- **Boosters:** `{guild.premium_subscription_count if guild else 0}` ⁘\n\n"
             "Stay active, and enjoy your time in Moon Night"
         ),
-        color=EMBED_COLOR
-    )
-    return embed
-
-
-# --- RULES PANEL ---
-class RulesView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(Button(label="• Open A Ticket!", style=ButtonStyle.link, url="https://discord.com/channels/1482902524376780932"))
-
-def get_rules_embed():
-    embed = discord.Embed(
-        description=(
-            "> 𝗧𝗼 𝗺𝗮𝗸𝗲 𝗦𝘂𝗿𝗲 𝗲𝘃𝗲𝗿𝘆𝗼𝗻𝗲 𝗲𝗻𝗷𝗼𝘆, 𝗽𝗹𝗲𝗮𝘀𝗲 𝗳𝗼𝗹𝗹𝗼𝘄 𝘁𝗵𝗼𝘀𝗲 𝗴𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 :\n\n"
-            "<a:estrellasbrillando:1442626060134121472> **1. Respect Everyone:** Treat all members with respect. No harassment, hate speech, or toxicity.\n"
-            "<a:estrellasbrillando:1442626060134121472> **2. No Spam:** Avoid spamming messages, emojis, or mentions.\n"
-            "<a:estrellasbrillando:1442626060134121472> **3. Appropriate Content:** Keep text and media appropriate for the channel."
-        ),
-        color=EMBED_COLOR
-    )
-    return embed
-
-
-# --- SELF ROLES PANEL ---
-ROLE_IDS = {
-    "boy": 134250000000000001,
-    "girl": 134250000000000002,
-    "announcement": 134250000000000003,
-    "event": 134250000000000004
-}
-
-class SelfRolesView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Boy", style=ButtonStyle.primary, custom_id="role_boy", emoji="👨")
-    async def btn_boy(self, interaction: Interaction, button: Button):
-        await self.toggle_role(interaction, ROLE_IDS["boy"])
-
-    @discord.ui.button(label="Girl", style=ButtonStyle.danger, custom_id="role_girl", emoji="👩")
-    async def btn_girl(self, interaction: Interaction, button: Button):
-        await self.toggle_role(interaction, ROLE_IDS["girl"])
-
-    @discord.ui.button(label="Announcements", style=ButtonStyle.secondary, custom_id="role_announce", emoji="🔔")
-    async def btn_announce(self, interaction: Interaction, button: Button):
-        await self.toggle_role(interaction, ROLE_IDS["announcement"])
-
-    @discord.ui.button(label="Events", style=ButtonStyle.secondary, custom_id="role_events", emoji="🎉")
-    async def btn_events(self, interaction: Interaction, button: Button):
-        await self.toggle_role(interaction, ROLE_IDS["event"])
-
-    async def toggle_role(self, interaction: Interaction, role_id: int):
-        role = interaction.guild.get_role(role_id)
-        if not role:
-            return await interaction.response.send_message("❌ Role ma m9adch mzyan f bot config!", ephemeral=True)
-        
-        if role in interaction.user.roles:
-            await interaction.user.remove_roles(role)
-            await interaction.response.send_message(f"➖ T7yd lik role: **{role.name}**", ephemeral=True)
-        else:
-            await interaction.user.add_roles(role)
-            await interaction.response.send_message(f"➕ Tzad lik role: **{role.name}**", ephemeral=True)
-
-def get_selfroles_embed():
-    embed = discord.Embed(
-        title="🎭 Self Roles - Moon Night",
-        description="Khtar l-roles li bghiti b klik wahed f l-boutonat li te7t:",
-        color=EMBED_COLOR
-    )
-    return embed
-
-
-# --- ROLE REQUEST PANEL ---
-class RoleRequestModal(Modal, title="طلب رتبة / Role Request"):
-    role_name = TextInput(label="اسم الرتبة المطلوبة / Role Name", placeholder="مثال: Content Creator, Designer...", required=True)
-    proof = TextInput(label="الدليل / Proof (Link, Info)", style=discord.TextStyle.paragraph, placeholder="حط الرابط ولا السبب علاش كتستاهل الرتبة", required=True)
-
-    async def on_submit(self, interaction: Interaction):
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            embed = discord.Embed(title="📩 Request Role Jdid", color=0x00ff00)
-            embed.add_field(name="User", value=interaction.user.mention, inline=True)
-            embed.add_field(name="Role", value=self.role_name.value, inline=True)
-            embed.add_field(name="Proof / Reason", value=self.proof.value, inline=False)
-            await log_channel.send(embed=embed)
-        
-        await interaction.response.send_message("✅ الطلب ديالك تصيفط ل الإدارة بنجاح!", ephemeral=True)
-
-class RoleRequestView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="طلب رتبة / Request Role", style=ButtonStyle.success, custom_id="req_role_btn", emoji="📝")
-    async def req_btn(self, interaction: Interaction, button: Button):
-        await interaction.response.send_modal(RoleRequestModal())
-
-def get_rolerequest_embed():
-    embed = discord.Embed(
-        title="✨ Request Roles System",
-        description="Ila bghiti t-demandi chi role khas (VIP, Creator, Streamer...), اضغط على الزر أسفله وعمر الاستمارة.",
         color=EMBED_COLOR
     )
     return embed
@@ -212,30 +296,37 @@ def get_rolerequest_embed():
 # ==========================================
 @bot.tree.command(name="send_panel", description="Send Moon Night panels (Owner/Admin Only)")
 @app_commands.choices(panel=[
-    app_commands.Choice(name="Socials", value="socials"),
-    app_commands.Choice(name="Stats", value="stats"),
     app_commands.Choice(name="Rules", value="rules"),
     app_commands.Choice(name="Self Roles", value="selfroles"),
-    app_commands.Choice(name="Role Request", value="rolerequest")
+    app_commands.Choice(name="Role Request", value="rolerequest"),
+    app_commands.Choice(name="Staff Apply", value="staffapply"),
+    app_commands.Choice(name="Map Guide", value="mapguide"),
+    app_commands.Choice(name="Socials", value="socials"),
+    app_commands.Choice(name="Stats", value="stats")
 ])
 @is_owner_or_admin_slash()
 async def send_panel(interaction: Interaction, panel: str):
     await interaction.response.defer(ephemeral=True)
-    if panel == "socials":
+    if panel == "rules":
+        await interaction.channel.send(embed=get_rules_embed(), view=RulesView())
+    elif panel == "selfroles":
+        await interaction.channel.send(embeds=get_selfroles_embeds(), view=SelfRolesView())
+    elif panel == "rolerequest":
+        await interaction.channel.send(embed=get_rolerequest_embed(), view=RoleRequestView())
+    elif panel == "staffapply":
+        await interaction.channel.send(embed=get_staff_apply_embed(), view=StaffApplyView())
+    elif panel == "mapguide":
+        await interaction.channel.send(embed=get_map_guide_embed())
+    elif panel == "socials":
         await interaction.channel.send(embed=get_socials_embed(), view=SocialsView())
     elif panel == "stats":
         await interaction.channel.send(embed=get_stats_embed(interaction.guild), view=StatsView(interaction.guild))
-    elif panel == "rules":
-        await interaction.channel.send(embed=get_rules_embed(), view=RulesView())
-    elif panel == "selfroles":
-        await interaction.channel.send(embed=get_selfroles_embed(), view=SelfRolesView())
-    elif panel == "rolerequest":
-        await interaction.channel.send(embed=get_rolerequest_embed(), view=RoleRequestView())
+    
     await interaction.followup.send(f"✅ Panel **{panel}** sent successfully!", ephemeral=True)
 
 
 # ==========================================
-# 2. HELP SYSTEM (SELECT MENU + PAGINATION)
+# 2. HELP SYSTEM
 # ==========================================
 HELP_DATA = {
     "Information": [
@@ -283,7 +374,6 @@ class HelpView(View):
     def get_embed(self):
         if not self.current_category:
             embed = discord.Embed(title="🌙 Moon Night - Help Center", description="Welcome to the help menu! Choose a category from the select menu below.", color=EMBED_COLOR)
-            embed.set_image(url="https://i.imgur.com/vHqB5o2.png")
             return embed
         
         pages = HELP_DATA[self.current_category]
@@ -298,7 +388,6 @@ class HelpView(View):
             embed.add_field(name=f"`{cmd}`", value=f"• {desc}", inline=False)
             
         embed.set_footer(text=f"Page {self.current_page + 1} of {len(pages)}")
-        embed.set_image(url="https://i.imgur.com/vHqB5o2.png")
         return embed
 
     def update_buttons(self):
@@ -333,7 +422,7 @@ async def custom_help(ctx):
 
 
 # ==========================================
-# 3. VOICE & MUSIC COMMANDS
+# 3. VOICE, MUSIC & MODERATION COMMANDS
 # ==========================================
 ytdl_opts = {'format': 'bestaudio/best', 'quiet': True, 'default_search': 'auto', 'source_address': '0.0.0.0'}
 ffmpeg_opts = {'options': '-vn'}
@@ -386,10 +475,6 @@ async def stop_music(ctx):
     else:
         await ctx.send("❌ Walou khdam daba.")
 
-
-# ==========================================
-# 4. MODERATION & GENERAL COMMANDS
-# ==========================================
 @bot.command(name="ping")
 async def cmd_ping(ctx):
     await ctx.send(f"🏓 Pong! Latency: `{round(bot.latency * 1000)}ms`")
