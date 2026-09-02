@@ -72,7 +72,7 @@ def get_socials_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
     return embed
 
 
@@ -167,7 +167,7 @@ def get_map_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/x07X44a.png")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
     return embed
 
 
