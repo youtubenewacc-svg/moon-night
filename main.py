@@ -1,5 +1,10 @@
 import os
 import time
+import re
+import random
+import json
+import asyncio
+from datetime import timedelta, datetime, timezone
 import discord
 from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
@@ -11,6 +16,13 @@ from discord.ui import View, Button, Select, Modal, TextInput
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "1241496820455313533"))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))
+JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))  # ID of the Jail role
+PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))  # Optional: existing Protected role ID
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))
+LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))
+TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "0"))
+XP_COOLDOWN = 45
+DATA_FILE = "moon_night_data.json"
 
 # Color Palette (Dark Theme / Night Blue Aesthetic)
 EMBED_COLOR = 0x2b2d31
@@ -18,6 +30,127 @@ EMBED_COLOR = 0x2b2d31
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
+
+
+# ==========================================
+# MODERATION / SERVER INFO HELPERS
+# ==========================================
+PROTECTED_USERS = set()
+SERVER_PEAK_MEMBERS = {}
+
+def parse_duration(value: str):
+    """Accept: 60s, 1m, 6h, 1d. Discord timeout max = 28 days."""
+    match = re.fullmatch(
+        r"\s*(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s*",
+        value,
+        re.IGNORECASE
+    )
+    if not match:
+        return None
+
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+
+    if unit in {"s", "sec", "secs", "second", "seconds"}:
+        seconds = amount
+    elif unit in {"m", "min", "mins", "minute", "minutes"}:
+        seconds = amount * 60
+    elif unit in {"h", "hr", "hrs", "hour", "hours"}:
+        seconds = amount * 3600
+    else:
+        seconds = amount * 86400
+
+    if seconds <= 0 or seconds > 28 * 86400:
+        return None
+    return seconds
+
+def format_duration(seconds: int):
+    if seconds % 86400 == 0:
+        return f"{seconds // 86400}d"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    if seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+def update_peak_members(guild: discord.Guild):
+    if guild:
+        current = guild.member_count or len(guild.members)
+        SERVER_PEAK_MEMBERS[guild.id] = max(
+            SERVER_PEAK_MEMBERS.get(guild.id, 0),
+            current
+        )
+
+def is_protected_member(member: discord.Member):
+    return member.id == OWNER_ID or member.id in PROTECTED_USERS
+
+def get_jail_role(guild: discord.Guild):
+    if not guild or not JAIL_ROLE_ID:
+        return None
+    return guild.get_role(JAIL_ROLE_ID)
+
+def get_protected_role(guild: discord.Guild):
+    if not guild:
+        return None
+    if PROTECTED_ROLE_ID:
+        role = guild.get_role(PROTECTED_ROLE_ID)
+        if role:
+            return role
+    return discord.utils.get(guild.roles, name="Protected")
+
+
+# ==========================================
+# COMMUNITY / GAMES DATA
+# ==========================================
+DEFAULT_DATA = {
+    "economy": {},
+    "xp": {},
+    "warnings": {},
+    "birthdays": {},
+    "suggestions": 0,
+    "giveaways": {}
+}
+
+def load_data():
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for key, default in DEFAULT_DATA.items():
+            data.setdefault(key, default.copy() if isinstance(default, dict) else default)
+        return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {k: (v.copy() if isinstance(v, dict) else v) for k, v in DEFAULT_DATA.items()}
+
+DATA = load_data()
+XP_LAST_MESSAGE = {}
+TEMP_VCS = {}
+MAFIA_GAMES = {}
+
+def save_data():
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(DATA, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Data save error: {e}")
+
+def user_key(guild_id, user_id):
+    return f"{guild_id}:{user_id}"
+
+def get_wallet(guild_id, user_id):
+    key = user_key(guild_id, user_id)
+    DATA["economy"].setdefault(key, {"coins": 0, "last_daily": 0})
+    return DATA["economy"][key]
+
+def get_xp(guild_id, user_id):
+    key = user_key(guild_id, user_id)
+    DATA["xp"].setdefault(key, {"xp": 0, "level": 0})
+    return DATA["xp"][key]
+
+def level_for_xp(xp):
+    return int((xp / 100) ** 0.5)
+
+def xp_for_next_level(level):
+    return (level + 1) ** 2 * 100
 
 class MoonNightBot(commands.Bot):
     def __init__(self):
@@ -72,7 +205,7 @@ def get_socials_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
+    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
     return embed
 
 
@@ -167,7 +300,7 @@ def get_map_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
+    embed.set_thumbnail(url="https://i.imgur.com/x07X44a.png")
     return embed
 
 
@@ -237,39 +370,21 @@ class BoosterRolesView(View):
 
     def create_booster_button(self, label: str, role_id: int):
         button = Button(label=f"• {label}", style=ButtonStyle.secondary, custom_id=f"booster_{role_id}")
-
+        
         async def button_callback(interaction: Interaction):
-            member = interaction.user
-            guild = interaction.guild
-
-            # Only current server boosters can use this panel.
-            booster_role = guild.premium_subscriber_role if guild else None
-            is_booster = bool(member.premium_since) or bool(booster_role and booster_role in member.roles)
-            if not is_booster:
+            role = interaction.guild.get_role(role_id)
+            if not role:
+                return await interaction.response.send_message("❌ Role not found on server!", ephemeral=True)
+            
+            # Only current server boosters can use booster perks.
+            if not interaction.user.premium_since:
                 return await interaction.response.send_message(
-                    "❌ This panel is only for **Server Boosters**! Boost the server to unlock these roles.",
+                    "🚀 **Booster Only!** You need to be boosting this server to use these perks.",
                     ephemeral=True
                 )
 
-            role = guild.get_role(role_id) if guild else None
-            if not role:
-                return await interaction.response.send_message("❌ Role not found on server!", ephemeral=True)
-
-            # Clicking the same role removes it.
-            if role in member.roles:
-                try:
-                    await member.remove_roles(role, reason="Booster perk role removed by member")
-                    return await interaction.response.send_message(
-                        f"➖ Removed **{role.name}**!", ephemeral=True
-                    )
-                except discord.Forbidden:
-                    return await interaction.response.send_message(
-                        "❌ I can't remove that role. Make sure my bot role is above the booster perk roles.",
-                        ephemeral=True
-                    )
-
-            # A booster can have only ONE perk role from this panel.
-            booster_role_ids = [
+            # Only one booster perk role at a time.
+            booster_role_ids = {
                 1523714779032584363,
                 1508497154313027675,
                 1482902118137462896,
@@ -278,25 +393,31 @@ class BoosterRolesView(View):
                 1482902047236952117,
                 1482902046653943870,
                 1482902043558547650
-            ]
-            old_roles = [r for r in member.roles if r.id in booster_role_ids and r.id != role_id]
+            }
 
-            try:
-                if old_roles:
-                    await member.remove_roles(*old_roles, reason="Booster perk role switched")
-                await member.add_roles(role, reason="Booster perk role selected")
+            if role in interaction.user.roles:
+                await interaction.user.remove_roles(role, reason="Booster perk removed")
                 await interaction.response.send_message(
-                    f"➕ You selected **{role.name}** as your booster perk!", ephemeral=True
+                    f"➖ Removed **{role.name}**!", ephemeral=True
                 )
-            except discord.Forbidden:
-                await interaction.response.send_message(
-                    "❌ I can't manage these roles. Make sure my bot role is above all booster perk roles.",
-                    ephemeral=True
+                return
+
+            roles_to_remove = [
+                r for r in interaction.user.roles
+                if r.id in booster_role_ids and r.id != role_id
+            ]
+
+            if roles_to_remove:
+                await interaction.user.remove_roles(
+                    *roles_to_remove,
+                    reason="Switching booster perk role"
                 )
-            except discord.HTTPException:
-                await interaction.response.send_message(
-                    "❌ Discord refused the role update. Try again in a moment.", ephemeral=True
-                )
+
+            await interaction.user.add_roles(role, reason="Booster perk selected")
+            await interaction.response.send_message(
+                f"➕ Added **{role.name}**! Your previous booster perk was removed.",
+                ephemeral=True
+            )
 
         button.callback = button_callback
         return button
@@ -305,7 +426,7 @@ def get_booster_embed():
     embed = discord.Embed(
         title="৳ Choose your booster role",
         description=(
-            "-# **Server Boosters only:** pick **one** of the roles below as a thanks for boosting!\n\n"
+            "-# Pick one of the roles down as a thanks for boosting!\n\n"
             "> <@&1523714779032584363>\n"
             "> <@&1508497154313027675>\n"
             "> <@&1482902118137462896>\n"
@@ -314,7 +435,6 @@ def get_booster_embed():
             "> <@&1482902047236952117>\n"
             "> <@&1482902046653943870>\n"
             "> <@&1482902043558547650>\n\n"
-            "-# You can choose **one** perk role. Click the same role again to remove it.\n"
             "-# © 2026 Moon Night    #ɓαɕƘ's Lisa. All rights reserved."
         ),
         color=EMBED_COLOR
@@ -515,6 +635,1064 @@ def get_role_request_embed():
     return embed
 
 
+
+# ==========================================
+# 9. MODERATION COMMANDS
+# ==========================================
+
+@bot.tree.command(name="mutechat", description="Timeout a member in chat")
+@app_commands.describe(
+    user="Member to mute",
+    duration="Duration: 60s, 1m, 6h, 1d (max 28d)"
+)
+@is_owner_or_admin()
+async def mutechat(interaction: Interaction, user: discord.Member, duration: str):
+    if is_protected_member(user):
+        return await interaction.response.send_message(
+            "🛡️ This member is **Protected** and cannot be muted by the bot.",
+            ephemeral=True
+        )
+
+    seconds = parse_duration(duration)
+    if seconds is None:
+        return await interaction.response.send_message(
+            "❌ Invalid duration. Examples: `60s`, `1m`, `6h`, `1d` — maximum `28d`.",
+            ephemeral=True
+        )
+
+    try:
+        await user.timeout(
+            timedelta(seconds=seconds),
+            reason=f"Chat mute by {interaction.user}"
+        )
+        await interaction.response.send_message(
+            f"🔇 {user.mention} muted for **{format_duration(seconds)}**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ I can't timeout this member. Check my role hierarchy and permissions.",
+            ephemeral=True
+        )
+    except discord.HTTPException:
+        await interaction.response.send_message(
+            "❌ Discord refused the timeout request.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="unmutechat", description="Remove a member's chat timeout")
+@app_commands.describe(user="Member to unmute")
+@is_owner_or_admin()
+async def unmutechat(interaction: Interaction, user: discord.Member):
+    try:
+        await user.timeout(None, reason=f"Chat unmute by {interaction.user}")
+        await interaction.response.send_message(
+            f"🔊 {user.mention} has been **unmuted in chat**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ I can't remove this timeout.",
+            ephemeral=True
+        )
+    except discord.HTTPException:
+        await interaction.response.send_message(
+            "❌ Discord refused the unmute request.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="mutevc", description="Server mute a member in voice")
+@app_commands.describe(user="Member to mute in VC")
+@is_owner_or_admin()
+async def mutevc(interaction: Interaction, user: discord.Member):
+    if is_protected_member(user):
+        return await interaction.response.send_message(
+            "🛡️ This member is **Protected** and cannot be VC muted by the bot.",
+            ephemeral=True
+        )
+
+    if not user.voice:
+        return await interaction.response.send_message(
+            "❌ This member is not currently in a voice channel.",
+            ephemeral=True
+        )
+
+    try:
+        await user.edit(mute=True, reason=f"VC mute by {interaction.user}")
+        await interaction.response.send_message(
+            f"🔇 {user.mention} is now **server-muted in VC**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ I can't server-mute this member. Check permissions/role hierarchy.",
+            ephemeral=True
+        )
+    except discord.HTTPException:
+        await interaction.response.send_message(
+            "❌ Discord refused the VC mute request.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="unmutevc", description="Remove a member's server VC mute")
+@app_commands.describe(user="Member to unmute in VC")
+@is_owner_or_admin()
+async def unmutevc(interaction: Interaction, user: discord.Member):
+    try:
+        await user.edit(mute=False, reason=f"VC unmute by {interaction.user}")
+        await interaction.response.send_message(
+            f"🔊 {user.mention} has been **unmuted in VC**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ I can't remove the VC mute.",
+            ephemeral=True
+        )
+    except discord.HTTPException:
+        await interaction.response.send_message(
+            "❌ Discord refused the VC unmute request.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="antinuke", description="Protect a member from bot moderation")
+@app_commands.describe(user="Member to protect")
+@is_owner_or_admin()
+async def antinuke(interaction: Interaction, user: discord.Member):
+    if user.id == OWNER_ID:
+        return await interaction.response.send_message(
+            "🛡️ The owner is already permanently protected.",
+            ephemeral=True
+        )
+
+    PROTECTED_USERS.add(user.id)
+
+    protected_role = get_protected_role(interaction.guild)
+    if protected_role is None:
+        try:
+            protected_role = await interaction.guild.create_role(
+                name="Protected",
+                reason=f"Antinuke protection enabled by {interaction.user}"
+            )
+        except discord.Forbidden:
+            protected_role = None
+
+    if protected_role and protected_role not in user.roles:
+        try:
+            await user.add_roles(
+                protected_role,
+                reason="Antinuke protection"
+            )
+        except discord.Forbidden:
+            pass
+
+    await interaction.response.send_message(
+        f"🛡️ {user.mention} is now **Protected**."
+        + (" The `Protected` role was added." if protected_role else "")
+    )
+
+
+@bot.tree.command(name="jail", description="Give the configured Jail role to a member")
+@app_commands.describe(user="Member to jail")
+@is_owner_or_admin()
+async def jail(interaction: Interaction, user: discord.Member):
+    if is_protected_member(user):
+        return await interaction.response.send_message(
+            "🛡️ This member is **Protected** and cannot be jailed by the bot.",
+            ephemeral=True
+        )
+
+    jail_role = get_jail_role(interaction.guild)
+    if not jail_role:
+        return await interaction.response.send_message(
+            "❌ Jail role is not configured. Set `JAIL_ROLE_ID` first.",
+            ephemeral=True
+        )
+
+    try:
+        await user.add_roles(jail_role, reason=f"Jail by {interaction.user}")
+        await interaction.response.send_message(
+            f"⛓️ {user.mention} has been **Jailed**."
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ I can't add the Jail role. Put the bot's role above the Jail role.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="about", description="Show detailed server information")
+async def about(interaction: Interaction):
+    guild = interaction.guild
+    if not guild:
+        return await interaction.response.send_message(
+            "❌ This command can only be used in a server.",
+            ephemeral=True
+        )
+
+    update_peak_members(guild)
+
+    total = guild.member_count or len(guild.members)
+    active = sum(
+        1 for m in guild.members
+        if m.status in {
+            discord.Status.online,
+            discord.Status.idle,
+            discord.Status.dnd
+        }
+    )
+    offline = max(total - active, 0)
+    roles = len(guild.roles)
+    channels = len(guild.channels)
+    text_channels = len(guild.text_channels)
+    voice_channels = len(guild.voice_channels)
+    stage_channels = len(guild.stage_channels)
+    boosters = guild.premium_subscription_count or 0
+    peak = SERVER_PEAK_MEMBERS.get(guild.id, total)
+    voice_members = sum(len(c.members) for c in guild.voice_channels)
+
+    embed = discord.Embed(
+        title=f"ℹ️ {guild.name} — Server Information",
+        color=EMBED_COLOR
+    )
+
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    created = int(guild.created_at.timestamp())
+
+    embed.add_field(
+        name="📅 Created",
+        value=f"<t:{created}:F>\n<t:{created}:R>",
+        inline=False
+    )
+    embed.add_field(name="👥 Members", value=f"`{total}`", inline=True)
+    embed.add_field(name="🟢 Active", value=f"`{active}`", inline=True)
+    embed.add_field(name="⚫ Offline", value=f"`{offline}`", inline=True)
+    embed.add_field(name="📈 Peak Members", value=f"`{peak}`", inline=True)
+    embed.add_field(name="🚀 Boosters", value=f"`{boosters}`", inline=True)
+    embed.add_field(name="🎭 Roles", value=f"`{roles}`", inline=True)
+    embed.add_field(name="💬 Text Rooms", value=f"`{text_channels}`", inline=True)
+    embed.add_field(name="🔊 Voice Rooms", value=f"`{voice_channels}`", inline=True)
+    embed.add_field(name="🎙️ Stage Rooms", value=f"`{stage_channels}`", inline=True)
+    embed.add_field(name="🎧 In Voice", value=f"`{voice_members}`", inline=True)
+    embed.add_field(name="📁 Total Channels", value=f"`{channels}`", inline=True)
+
+    embed.set_footer(text="Moon Night • Server Information")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="invite", description="Get the bot's invite link")
+async def invite(interaction: Interaction):
+    invite_url = discord.utils.oauth_url(
+        bot.user.id,
+        permissions=discord.Permissions(administrator=True),
+        scopes=("bot", "applications.commands")
+    )
+
+    embed = discord.Embed(
+        title="🤖 Invite Moon Night Bot",
+        description="Use the button below to invite Moon Night Bot to another server.",
+        color=EMBED_COLOR
+    )
+
+    view = View(timeout=300)
+    view.add_item(
+        Button(
+            label="Invite Bot",
+            style=ButtonStyle.link,
+            url=invite_url
+        )
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
+        view=view,
+        ephemeral=True
+    )
+
+
+# ==========================================
+# MEMBER / SERVER PEAK TRACKING
+# ==========================================
+@bot.event
+async def on_member_join(member: discord.Member):
+    update_peak_members(member.guild)
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    update_peak_members(member.guild)
+
+
+# ==========================================
+# 10. HELP CENTER
+# ==========================================
+HELP_CATEGORIES = {
+    "🛡️ Moderation": [
+        ("/warn", "Warn a member and store the warning."),
+        ("/warnings", "Show a member's stored warnings."),
+        ("/clear", "Delete recent messages."),
+        ("/kick", "Kick a member."),
+        ("/ban", "Ban a member."),
+        ("/unban", "Unban a user by ID."),
+        ("/lock", "Lock the current text channel."),
+        ("/unlock", "Unlock the current text channel."),
+        ("/slowmode", "Set channel slowmode."),
+        ("/mutechat", "Timeout a member: 60s, 1m, 6h, 1d."),
+        ("/unmutechat", "Remove a chat timeout."),
+        ("/mutevc", "Server-mute a member in VC."),
+        ("/unmutevc", "Remove a VC mute."),
+        ("/jail", "Give the configured Jail role."),
+        ("/antinuke", "Protect a member from bot moderation.")
+    ],
+    "🎮 Games": [
+        ("/coinflip", "Flip a virtual coin."),
+        ("/dice", "Roll a virtual die."),
+        ("/rps", "Play Rock Paper Scissors."),
+        ("/8ball", "Ask the Magic 8-Ball."),
+        ("/roulette", "Virtual roulette using Moon Coins."),
+        ("/slots", "Virtual slot machine."),
+        ("/blackjack", "Virtual blackjack."),
+        ("/mafia", "Create, join, leave, start or view Mafia.")
+    ],
+    "💰 Economy": [
+        ("/balance", "Check your virtual Moon Coins."),
+        ("/daily", "Claim a daily virtual reward."),
+        ("/work", "Earn virtual coins."),
+        ("/pay", "Send virtual coins to another member."),
+        ("/leaderboard", "Richest members leaderboard.")
+    ],
+    "🏆 Levels": [
+        ("/rank", "Show XP and level."),
+        ("/leaderboardxp", "XP leaderboard.")
+    ],
+    "🎫 Community": [
+        ("/ticket", "Create a private support ticket."),
+        ("/poll", "Create a reaction poll."),
+        ("/suggest", "Submit a server suggestion."),
+        ("/announce", "Post a formatted announcement."),
+        ("/userinfo", "Show member information."),
+        ("/avatar", "Show a member avatar."),
+        ("/roleinfo", "Show role information."),
+        ("/serverinfo", "Show server information.")
+    ],
+    "🎁 Events": [
+        ("/giveaway", "Start a timed giveaway."),
+        ("/giveaway_end", "End a giveaway early."),
+        ("/birthday", "Set, view or remove a birthday.")
+    ],
+    "🌙 Server": [
+        ("/about", "Show server statistics."),
+        ("/invite", "Get the bot invite link."),
+        ("/send_panel", "Send Moon Night panels.")
+    ]
+}
+
+class HelpCategorySelect(Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=name, description=f"Show {name} commands.")
+            for name in HELP_CATEGORIES
+        ]
+        super().__init__(
+            placeholder="🌙 Choose a category...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="moon_help_category"
+        )
+
+    async def callback(self, interaction: Interaction):
+        category = self.values[0]
+        lines = "\n".join(
+            f"**`{cmd}`** — {desc}" for cmd, desc in HELP_CATEGORIES[category]
+        )
+        embed = discord.Embed(
+            title=f"🌙 Moon Night • {category}",
+            description=(
+                "```ansi\nMoon Night Community Command Center\n```\n"
+                + lines
+                + "\n\n-# Select another category below to explore more."
+            ),
+            color=EMBED_COLOR
+        )
+        embed.set_footer(text="Moon Night • Help Center")
+        await interaction.response.edit_message(embed=embed, view=self.view)
+
+class HelpView(View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(HelpCategorySelect())
+
+@bot.tree.command(name="help", description="Open the Moon Night command center")
+async def help_command(interaction: Interaction):
+    embed = discord.Embed(
+        title="🌙 Moon Night • Command Center",
+        description=(
+            "Welcome to the **Moon Night Help Center**.\n\n"
+            "Choose a category below and you'll get every command with a clean description.\n\n"
+            "✨ Moderation commands are Staff/Admin restricted."
+        ),
+        color=EMBED_COLOR
+    )
+    embed.set_thumbnail(url="https://i.imgur.com/vHqB5o2.png")
+    embed.set_footer(text="Moon Night • Help Center")
+    await interaction.response.send_message(embed=embed, view=HelpView(), ephemeral=True)
+
+
+# ==========================================
+# 11. EXTRA MODERATION
+# ==========================================
+@bot.tree.command(name="warn", description="Warn a member")
+@app_commands.describe(user="Member to warn", reason="Reason")
+@is_owner_or_admin()
+async def warn(interaction: Interaction, user: discord.Member, reason: str = "No reason provided"):
+    if is_protected_member(user):
+        return await interaction.response.send_message("🛡️ Protected member.", ephemeral=True)
+    key = user_key(interaction.guild.id, user.id)
+    DATA["warnings"].setdefault(key, [])
+    DATA["warnings"][key].append({"reason": reason, "moderator": interaction.user.id, "time": int(time.time())})
+    save_data()
+    await interaction.response.send_message(
+        f"⚠️ {user.mention} warned.\n**Reason:** {reason}\n**Warnings:** `{len(DATA['warnings'][key])}`"
+    )
+
+@bot.tree.command(name="warnings", description="Show a member's warnings")
+@app_commands.describe(user="Member")
+@is_owner_or_admin()
+async def warnings(interaction: Interaction, user: discord.Member):
+    items = DATA["warnings"].get(user_key(interaction.guild.id, user.id), [])
+    if not items:
+        return await interaction.response.send_message("✅ No stored warnings.", ephemeral=True)
+    lines = [f"`#{i}` <t:{x['time']}:R> — {x['reason']}" for i, x in enumerate(items[-10:], 1)]
+    await interaction.response.send_message(
+        embed=discord.Embed(title=f"⚠️ Warnings • {user}", description="\n".join(lines), color=EMBED_COLOR),
+        ephemeral=True
+    )
+
+@bot.tree.command(name="clear", description="Delete recent messages")
+@app_commands.describe(amount="1-100 messages")
+@is_owner_or_admin()
+async def clear(interaction: Interaction, amount: app_commands.Range[int, 1, 100]):
+    if not isinstance(interaction.channel, discord.TextChannel):
+        return await interaction.response.send_message("❌ Text channels only.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    deleted = await interaction.channel.purge(limit=amount)
+    await interaction.followup.send(f"🧹 Deleted `{len(deleted)}` messages.", ephemeral=True)
+
+@bot.tree.command(name="kick", description="Kick a member")
+@app_commands.describe(user="Member", reason="Reason")
+@is_owner_or_admin()
+async def kick(interaction: Interaction, user: discord.Member, reason: str = "No reason provided"):
+    if is_protected_member(user):
+        return await interaction.response.send_message("🛡️ Protected member.", ephemeral=True)
+    try:
+        await user.kick(reason=reason)
+        await interaction.response.send_message(f"👢 Kicked **{user}** — {reason}")
+    except discord.Forbidden:
+        await interaction.response.send_message("❌ I can't kick that member.", ephemeral=True)
+
+@bot.tree.command(name="ban", description="Ban a member")
+@app_commands.describe(user="Member", reason="Reason")
+@is_owner_or_admin()
+async def ban(interaction: Interaction, user: discord.Member, reason: str = "No reason provided"):
+    if is_protected_member(user):
+        return await interaction.response.send_message("🛡️ Protected member.", ephemeral=True)
+    try:
+        await user.ban(reason=reason, delete_message_days=0)
+        await interaction.response.send_message(f"🔨 Banned **{user}** — {reason}")
+    except discord.Forbidden:
+        await interaction.response.send_message("❌ I can't ban that member.", ephemeral=True)
+
+@bot.tree.command(name="unban", description="Unban a user by ID")
+@app_commands.describe(user_id="Discord user ID", reason="Reason")
+@is_owner_or_admin()
+async def unban(interaction: Interaction, user_id: str, reason: str = "No reason provided"):
+    try:
+        user = await bot.fetch_user(int(user_id))
+        await interaction.guild.unban(user, reason=reason)
+        await interaction.response.send_message(f"🔓 Unbanned **{user}**.")
+    except (ValueError, discord.NotFound):
+        await interaction.response.send_message("❌ Invalid or unknown user ID.", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message("❌ I can't unban users.", ephemeral=True)
+
+@bot.tree.command(name="slowmode", description="Set channel slowmode")
+@app_commands.describe(seconds="0-21600 seconds")
+@is_owner_or_admin()
+async def slowmode(interaction: Interaction, seconds: app_commands.Range[int, 0, 21600]):
+    if not isinstance(interaction.channel, discord.TextChannel):
+        return await interaction.response.send_message("❌ Text channels only.", ephemeral=True)
+    await interaction.channel.edit(slowmode_delay=seconds)
+    await interaction.response.send_message(f"🐢 Slowmode: `{seconds}s`.")
+
+@bot.tree.command(name="lock", description="Lock current channel")
+@is_owner_or_admin()
+async def lock(interaction: Interaction):
+    if not isinstance(interaction.channel, discord.TextChannel):
+        return await interaction.response.send_message("❌ Text channels only.", ephemeral=True)
+    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+    overwrite.send_messages = False
+    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+    await interaction.response.send_message("🔒 Channel locked.")
+
+@bot.tree.command(name="unlock", description="Unlock current channel")
+@is_owner_or_admin()
+async def unlock(interaction: Interaction):
+    if not isinstance(interaction.channel, discord.TextChannel):
+        return await interaction.response.send_message("❌ Text channels only.", ephemeral=True)
+    overwrite = interaction.channel.overwrites_for(interaction.guild.default_role)
+    overwrite.send_messages = None
+    await interaction.channel.set_permissions(interaction.guild.default_role, overwrite=overwrite)
+    await interaction.response.send_message("🔓 Channel unlocked.")
+
+
+# ==========================================
+# 12. COMMUNITY
+# ==========================================
+@bot.tree.command(name="poll", description="Create a community poll")
+@app_commands.describe(question="Question", option1="First option", option2="Second option")
+async def poll(interaction: Interaction, question: str, option1: str, option2: str):
+    embed = discord.Embed(
+        title="📊 Community Poll",
+        description=f"**{question}**\n\n1️⃣ {option1}\n2️⃣ {option2}",
+        color=EMBED_COLOR
+    )
+    await interaction.response.send_message(embed=embed)
+    msg = await interaction.original_response()
+    await msg.add_reaction("1️⃣")
+    await msg.add_reaction("2️⃣")
+
+@bot.tree.command(name="suggest", description="Submit a suggestion")
+@app_commands.describe(text="Suggestion")
+async def suggest(interaction: Interaction, text: str):
+    DATA["suggestions"] += 1
+    number = DATA["suggestions"]
+    save_data()
+    embed = discord.Embed(title=f"💡 Suggestion #{number}", description=text, color=EMBED_COLOR)
+    embed.set_author(name=str(interaction.user), icon_url=interaction.user.display_avatar.url)
+    await interaction.response.send_message(embed=embed)
+    msg = await interaction.original_response()
+    await msg.add_reaction("👍")
+    await msg.add_reaction("👎")
+
+@bot.tree.command(name="announce", description="Send an announcement")
+@app_commands.describe(title="Title", message="Message")
+@is_owner_or_admin()
+async def announce(interaction: Interaction, title: str, message: str):
+    embed = discord.Embed(title=f"📢 {title}", description=message, color=EMBED_COLOR)
+    embed.set_footer(text=f"Moon Night • {interaction.user}")
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="userinfo", description="Show member information")
+async def userinfo(interaction: Interaction, user: discord.Member = None):
+    user = user or interaction.user
+    roles = [r.mention for r in user.roles[1:]][-10:]
+    embed = discord.Embed(title=f"👤 {user}", color=EMBED_COLOR)
+    embed.set_thumbnail(url=user.display_avatar.url)
+    embed.add_field(name="ID", value=f"`{user.id}`", inline=True)
+    embed.add_field(name="Joined", value=f"<t:{int(user.joined_at.timestamp())}:F>" if user.joined_at else "Unknown", inline=True)
+    embed.add_field(name="Account", value=f"<t:{int(user.created_at.timestamp())}:R>", inline=True)
+    embed.add_field(name="Roles", value=" ".join(roles) if roles else "None", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="avatar", description="Show a member avatar")
+async def avatar(interaction: Interaction, user: discord.Member = None):
+    user = user or interaction.user
+    embed = discord.Embed(title=f"🖼️ {user.display_name}'s Avatar", color=EMBED_COLOR)
+    embed.set_image(url=user.display_avatar.url)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="roleinfo", description="Show role information")
+async def roleinfo(interaction: Interaction, role: discord.Role):
+    embed = discord.Embed(title=f"🎭 {role.name}", color=role.color.value or EMBED_COLOR)
+    embed.add_field(name="ID", value=f"`{role.id}`", inline=True)
+    embed.add_field(name="Members", value=f"`{len(role.members)}`", inline=True)
+    embed.add_field(name="Position", value=f"`{role.position}`", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="serverinfo", description="Show server information")
+async def serverinfo(interaction: Interaction):
+    guild = interaction.guild
+    update_peak_members(guild)
+    embed = discord.Embed(title=f"🌙 {guild.name} • Server Info", color=EMBED_COLOR)
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    embed.add_field(name="Owner", value=f"<@{guild.owner_id}>", inline=True)
+    embed.add_field(name="Members", value=f"`{guild.member_count}`", inline=True)
+    embed.add_field(name="Roles", value=f"`{len(guild.roles)}`", inline=True)
+    embed.add_field(name="Text", value=f"`{len(guild.text_channels)}`", inline=True)
+    embed.add_field(name="Voice", value=f"`{len(guild.voice_channels)}`", inline=True)
+    embed.add_field(name="Categories", value=f"`{len(guild.categories)}`", inline=True)
+    embed.add_field(name="Boosts", value=f"`{guild.premium_subscription_count or 0}`", inline=True)
+    embed.add_field(name="Peak", value=f"`{SERVER_PEAK_MEMBERS.get(guild.id, guild.member_count)}`", inline=True)
+    embed.add_field(name="Created", value=f"<t:{int(guild.created_at.timestamp())}:F>", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+# ==========================================
+# 13. TICKETS
+# ==========================================
+class TicketCloseView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🔒 Close Ticket", style=ButtonStyle.danger, custom_id="moon_ticket_close")
+    async def close_ticket(self, interaction: Interaction, button: Button):
+        if not interaction.user.guild_permissions.manage_channels:
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        await interaction.response.send_message("🔒 Closing ticket...", ephemeral=True)
+        await asyncio.sleep(2)
+        await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
+
+@bot.tree.command(name="ticket", description="Create a private support ticket")
+async def ticket(interaction: Interaction):
+    guild = interaction.guild
+    category = discord.utils.get(guild.categories, name="🎫 TICKETS")
+    if category is None:
+        category = await guild.create_category("🎫 TICKETS")
+
+    name = f"ticket-{interaction.user.id}"
+    if discord.utils.get(guild.text_channels, name=name):
+        return await interaction.response.send_message("❌ You already have a ticket.", ephemeral=True)
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
+    }
+    channel = await guild.create_text_channel(name, category=category, overwrites=overwrites)
+    embed = discord.Embed(
+        title="🎫 Moon Night Support",
+        description=f"Welcome {interaction.user.mention}!\nExplain your issue here and staff will help you.",
+        color=EMBED_COLOR
+    )
+    await channel.send(content=interaction.user.mention, embed=embed, view=TicketCloseView())
+    await interaction.response.send_message(f"🎫 Ticket created: {channel.mention}", ephemeral=True)
+
+
+# ==========================================
+# 14. ECONOMY
+# ==========================================
+@bot.tree.command(name="balance", description="Check virtual Moon Coins")
+async def balance(interaction: Interaction, user: discord.Member = None):
+    user = user or interaction.user
+    coins = get_wallet(interaction.guild.id, user.id)["coins"]
+    await interaction.response.send_message(f"💰 {user.mention} has **{coins:,} Moon Coins**.")
+
+@bot.tree.command(name="daily", description="Claim daily virtual coins")
+async def daily(interaction: Interaction):
+    wallet = get_wallet(interaction.guild.id, interaction.user.id)
+    now = int(time.time())
+    if now - wallet["last_daily"] < 86400:
+        remaining = 86400 - (now - wallet["last_daily"])
+        return await interaction.response.send_message(
+            f"⏳ Next daily in **{remaining // 3600}h {(remaining % 3600) // 60}m**.", ephemeral=True
+        )
+    reward = random.randint(250, 600)
+    wallet["coins"] += reward
+    wallet["last_daily"] = now
+    save_data()
+    await interaction.response.send_message(f"🎁 Daily: **+{reward:,} Moon Coins**!")
+
+@bot.tree.command(name="work", description="Earn virtual Moon Coins")
+async def work(interaction: Interaction):
+    reward = random.randint(50, 250)
+    wallet = get_wallet(interaction.guild.id, interaction.user.id)
+    wallet["coins"] += reward
+    save_data()
+    await interaction.response.send_message(
+        f"💼 You worked as a **{random.choice(['builder','designer','developer','DJ','streamer','moderator'])}** and earned **{reward:,}** coins!"
+    )
+
+@bot.tree.command(name="pay", description="Pay virtual coins to a member")
+async def pay(interaction: Interaction, user: discord.Member, amount: app_commands.Range[int, 1, 1000000]):
+    if user.bot or user.id == interaction.user.id:
+        return await interaction.response.send_message("❌ Choose another member.", ephemeral=True)
+    sender = get_wallet(interaction.guild.id, interaction.user.id)
+    receiver = get_wallet(interaction.guild.id, user.id)
+    if sender["coins"] < amount:
+        return await interaction.response.send_message("❌ Not enough Moon Coins.", ephemeral=True)
+    sender["coins"] -= amount
+    receiver["coins"] += amount
+    save_data()
+    await interaction.response.send_message(f"💸 Sent **{amount:,}** Moon Coins to {user.mention}.")
+
+@bot.tree.command(name="leaderboard", description="Richest members leaderboard")
+async def leaderboard(interaction: Interaction):
+    gid = interaction.guild.id
+    entries = []
+    for key, wallet in DATA["economy"].items():
+        if key.startswith(f"{gid}:"):
+            try:
+                entries.append((wallet["coins"], int(key.split(":")[1])))
+            except ValueError:
+                pass
+    entries.sort(reverse=True)
+    lines = [f"**{i}.** <@{uid}> — `{coins:,}` 💰" for i, (coins, uid) in enumerate(entries[:10], 1)]
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="💰 Moon Night • Economy Leaderboard",
+            description="\n".join(lines) if lines else "No economy data yet.",
+            color=EMBED_COLOR
+        )
+    )
+
+
+# ==========================================
+# 15. XP / LEVELS
+# ==========================================
+@bot.tree.command(name="rank", description="Show XP and level")
+async def rank(interaction: Interaction, user: discord.Member = None):
+    user = user or interaction.user
+    stats = get_xp(interaction.guild.id, user.id)
+    embed = discord.Embed(title=f"🏆 {user.display_name} • Rank", color=EMBED_COLOR)
+    embed.set_thumbnail(url=user.display_avatar.url)
+    embed.add_field(name="Level", value=f"`{stats['level']}`", inline=True)
+    embed.add_field(name="XP", value=f"`{stats['xp']}`", inline=True)
+    embed.add_field(name="Next Level", value=f"`{xp_for_next_level(stats['level'])}` XP", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="leaderboardxp", description="XP leaderboard")
+async def leaderboardxp(interaction: Interaction):
+    gid = interaction.guild.id
+    entries = []
+    for key, stats in DATA["xp"].items():
+        if key.startswith(f"{gid}:"):
+            try:
+                entries.append((stats["xp"], int(key.split(":")[1])))
+            except ValueError:
+                pass
+    entries.sort(reverse=True)
+    lines = [f"**{i}.** <@{uid}> — `{xp:,}` XP" for i, (xp, uid) in enumerate(entries[:10], 1)]
+    await interaction.response.send_message(
+        embed=discord.Embed(title="🏆 Moon Night • XP Leaderboard", description="\n".join(lines) if lines else "No XP yet.", color=EMBED_COLOR)
+    )
+
+
+# ==========================================
+# 16. GAMES
+# ==========================================
+@bot.tree.command(name="coinflip", description="Flip a virtual coin")
+async def coinflip(interaction: Interaction):
+    await interaction.response.send_message(f"🪙 **{random.choice(['HEADS','TAILS'])}**")
+
+@bot.tree.command(name="dice", description="Roll a virtual die")
+async def dice(interaction: Interaction, sides: app_commands.Range[int, 2, 100] = 6):
+    await interaction.response.send_message(f"🎲 You rolled **{random.randint(1, sides)}** / `{sides}`.")
+
+@bot.tree.command(name="rps", description="Play Rock Paper Scissors")
+async def rps(interaction: Interaction, choice: str):
+    choice = choice.lower().strip()
+    if choice not in {"rock", "paper", "scissors"}:
+        return await interaction.response.send_message("❌ Use rock, paper or scissors.", ephemeral=True)
+    bot_choice = random.choice(["rock", "paper", "scissors"])
+    win = (choice, bot_choice) in {("rock","scissors"),("paper","rock"),("scissors","paper")}
+    result = "🤝 Draw!" if choice == bot_choice else ("🏆 You win!" if win else "💀 I win!")
+    await interaction.response.send_message(f"✊ You: **{choice}**\n🤖 Moon Night: **{bot_choice}**\n\n{result}")
+
+@bot.tree.command(name="8ball", description="Ask the Magic 8-Ball")
+async def eightball(interaction: Interaction, question: str):
+    await interaction.response.send_message(
+        f"🔮 **{question}**\n\n**Answer:** {random.choice(['Yes. 🌙','No. 💀','Absolutely. ✨','Ask later. 🔮','Very likely. ⭐','Unlikely. 🌑'])}"
+    )
+
+@bot.tree.command(name="roulette", description="Virtual roulette using Moon Coins")
+async def roulette(interaction: Interaction, amount: app_commands.Range[int, 1, 100000], color: str):
+    color = color.lower().strip()
+    if color not in {"red","black","green"}:
+        return await interaction.response.send_message("❌ Use red, black or green.", ephemeral=True)
+    wallet = get_wallet(interaction.guild.id, interaction.user.id)
+    if wallet["coins"] < amount:
+        return await interaction.response.send_message("❌ Not enough Moon Coins.", ephemeral=True)
+    number = random.randint(0,36)
+    reds = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+    result = "green" if number == 0 else ("red" if number in reds else "black")
+    if color == result:
+        winnings = amount * (14 if color == "green" else 2)
+        wallet["coins"] += winnings - amount
+        text = f"🎉 Won **{winnings:,}**!"
+    else:
+        wallet["coins"] -= amount
+        text = f"💀 Lost **{amount:,}**."
+    save_data()
+    await interaction.response.send_message(f"🎰 `{number}` — **{result.upper()}**\n{text}\n💰 `{wallet['coins']:,}`")
+
+@bot.tree.command(name="slots", description="Virtual slot machine")
+async def slots(interaction: Interaction, amount: app_commands.Range[int, 1, 100000]):
+    wallet = get_wallet(interaction.guild.id, interaction.user.id)
+    if wallet["coins"] < amount:
+        return await interaction.response.send_message("❌ Not enough Moon Coins.", ephemeral=True)
+    symbols = ["🌙","⭐","💎","🍒","7️⃣"]
+    result = [random.choice(symbols) for _ in range(3)]
+    multiplier = 8 if len(set(result)) == 1 else (2 if len(set(result)) == 2 else 0)
+    wallet["coins"] += amount * multiplier - amount
+    save_data()
+    await interaction.response.send_message(
+        f"🎰 **[ {' | '.join(result)} ]**\n"
+        f"{'🎉 Won ' + str(amount*multiplier) + '!' if multiplier else '💀 Lost ' + str(amount) + '.'}\n"
+        f"💰 `{wallet['coins']:,}`"
+    )
+
+def blackjack_card():
+    return random.choice([2,3,4,5,6,7,8,9,10,10,10,10,11])
+
+def blackjack_total(cards):
+    total = sum(cards)
+    aces = cards.count(11)
+    while total > 21 and aces:
+        total -= 10
+        aces -= 1
+    return total
+
+@bot.tree.command(name="blackjack", description="Virtual blackjack")
+async def blackjack(interaction: Interaction, amount: app_commands.Range[int, 1, 100000]):
+    wallet = get_wallet(interaction.guild.id, interaction.user.id)
+    if wallet["coins"] < amount:
+        return await interaction.response.send_message("❌ Not enough Moon Coins.", ephemeral=True)
+    player, dealer = [blackjack_card(), blackjack_card()], [blackjack_card(), blackjack_card()]
+    while blackjack_total(player) < 17:
+        player.append(blackjack_card())
+    while blackjack_total(dealer) < 17:
+        dealer.append(blackjack_card())
+    p, d = blackjack_total(player), blackjack_total(dealer)
+    if p > 21 or (d <= 21 and d > p):
+        wallet["coins"] -= amount
+        result = f"💀 Lost **{amount:,}**."
+    elif p == d:
+        result = "🤝 Push — bet returned."
+    elif p == 21 and len(player) == 2:
+        win = int(amount * 1.5)
+        wallet["coins"] += win
+        result = f"🃏 Blackjack — won **{win:,}**."
+    else:
+        wallet["coins"] += amount
+        result = f"🏆 Won **{amount:,}**."
+    save_data()
+    await interaction.response.send_message(f"🃏 Player `{p}` vs Dealer `{d}`\n{result}\n💰 `{wallet['coins']:,}`")
+
+
+# ==========================================
+# 17. MAFIA
+# ==========================================
+class MafiaJoinView(View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="🕵️ Join Mafia", style=ButtonStyle.primary, custom_id="moon_mafia_join")
+    async def join(self, interaction: Interaction, button: Button):
+        game = MAFIA_GAMES.get(self.guild_id)
+        if not game or game["started"]:
+            return await interaction.response.send_message("❌ Lobby closed.", ephemeral=True)
+        if interaction.user.id in game["players"]:
+            return await interaction.response.send_message("⚠️ Already joined.", ephemeral=True)
+        if len(game["players"]) >= 12:
+            return await interaction.response.send_message("❌ Lobby full.", ephemeral=True)
+        game["players"].append(interaction.user.id)
+        await interaction.response.edit_message(
+            content=f"🔪 **Mafia Lobby** — `{len(game['players'])}/12`\nClick **Join Mafia** to enter.",
+            view=self
+        )
+
+@bot.tree.command(name="mafia", description="Create, join, leave, start or view Mafia")
+@app_commands.describe(action="create, join, leave, start or status")
+@app_commands.choices(action=[
+    app_commands.Choice(name="create", value="create"),
+    app_commands.Choice(name="join", value="join"),
+    app_commands.Choice(name="leave", value="leave"),
+    app_commands.Choice(name="start", value="start"),
+    app_commands.Choice(name="status", value="status")
+])
+async def mafia(interaction: Interaction, action: app_commands.Choice[str]):
+    gid = interaction.guild.id
+    game = MAFIA_GAMES.get(gid)
+
+    if action.value == "create":
+        if game and not game["finished"]:
+            return await interaction.response.send_message("❌ A Mafia game already exists.", ephemeral=True)
+        MAFIA_GAMES[gid] = {"host": interaction.user.id, "players": [interaction.user.id], "started": False, "finished": False}
+        return await interaction.response.send_message(
+            "🔪 **Mafia Lobby Created!**\nPlayers: `1/12`", view=MafiaJoinView(gid)
+        )
+
+    if not game:
+        return await interaction.response.send_message("❌ Use `/mafia create` first.", ephemeral=True)
+
+    if action.value == "join":
+        if not game["started"] and interaction.user.id not in game["players"] and len(game["players"]) < 12:
+            game["players"].append(interaction.user.id)
+        return await interaction.response.send_message(f"🔪 Players: `{len(game['players'])}/12`", ephemeral=True)
+
+    if action.value == "leave":
+        if game["started"]:
+            return await interaction.response.send_message("❌ Game already started.", ephemeral=True)
+        if interaction.user.id in game["players"]:
+            game["players"].remove(interaction.user.id)
+        return await interaction.response.send_message("🚪 Left the Mafia lobby.", ephemeral=True)
+
+    if action.value == "status":
+        mentions = " ".join(f"<@{uid}>" for uid in game["players"])
+        return await interaction.response.send_message(f"🔪 **Mafia** `{len(game['players'])}/12`\n{mentions}")
+
+    if interaction.user.id != game["host"]:
+        return await interaction.response.send_message("❌ Only the host can start.", ephemeral=True)
+    if len(game["players"]) < 4:
+        return await interaction.response.send_message("❌ Need at least 4 players.", ephemeral=True)
+    game["started"] = True
+    roles = ["Mafia", "Detective", "Doctor"] + ["Civilian"] * max(0, len(game["players"]) - 3)
+    random.shuffle(roles)
+    for uid, role in zip(game["players"], roles):
+        try:
+            user = await bot.fetch_user(uid)
+            await user.send(f"🔪 **Moon Night Mafia**\nYour secret role: **{role}**")
+        except discord.HTTPException:
+            pass
+    await interaction.response.send_message("🔪 **Mafia started!** Secret roles were sent in DMs.")
+
+
+# ==========================================
+# 18. GIVEAWAYS
+# ==========================================
+@bot.tree.command(name="giveaway", description="Start a timed giveaway")
+@app_commands.describe(minutes="Duration", prize="Prize", winners="Winner count")
+@is_owner_or_admin()
+async def giveaway(interaction: Interaction, minutes: app_commands.Range[int, 1, 10080], prize: str, winners: app_commands.Range[int, 1, 20]):
+    end_at = int(time.time()) + minutes * 60
+    embed = discord.Embed(
+        title="🎁 MOON NIGHT GIVEAWAY",
+        description=f"**Prize:** {prize}\n**Winners:** `{winners}`\n**Ends:** <t:{end_at}:R>\n\nReact with 🎉 to enter!",
+        color=EMBED_COLOR
+    )
+    await interaction.response.send_message(embed=embed)
+    msg = await interaction.original_response()
+    await msg.add_reaction("🎉")
+    DATA["giveaways"][str(msg.id)] = {"channel": interaction.channel.id, "prize": prize, "winners": winners}
+    save_data()
+    await asyncio.sleep(minutes * 60)
+    try:
+        msg = await interaction.channel.fetch_message(msg.id)
+        reaction = discord.utils.get(msg.reactions, emoji="🎉")
+        users = [u async for u in reaction.users()] if reaction else []
+        users = [u for u in users if not u.bot]
+        if users:
+            chosen = random.sample(users, min(winners, len(users)))
+            await interaction.channel.send(f"🎉 Giveaway ended! {', '.join(u.mention for u in chosen)} won **{prize}**!")
+        else:
+            await interaction.channel.send("🎁 Giveaway ended with no valid entries.")
+    except discord.HTTPException:
+        pass
+    DATA["giveaways"].pop(str(msg.id), None)
+    save_data()
+
+@bot.tree.command(name="giveaway_end", description="End a giveaway early")
+@is_owner_or_admin()
+async def giveaway_end(interaction: Interaction, message_id: str):
+    info = DATA["giveaways"].get(message_id)
+    if not info:
+        return await interaction.response.send_message("❌ Giveaway not found.", ephemeral=True)
+    await interaction.response.send_message("✅ Giveaway marked for ending. If it is still running, use its reaction list to pick a winner.", ephemeral=True)
+
+
+# ==========================================
+# 19. BIRTHDAYS
+# ==========================================
+@bot.tree.command(name="birthday", description="Set, view or remove your birthday")
+@app_commands.describe(action="set, view or remove", date="DD/MM when using set")
+@app_commands.choices(action=[
+    app_commands.Choice(name="set", value="set"),
+    app_commands.Choice(name="view", value="view"),
+    app_commands.Choice(name="remove", value="remove")
+])
+async def birthday(interaction: Interaction, action: app_commands.Choice[str], date: str = None):
+    key = user_key(interaction.guild.id, interaction.user.id)
+    if action.value == "remove":
+        DATA["birthdays"].pop(key, None)
+        save_data()
+        return await interaction.response.send_message("🎂 Birthday removed.", ephemeral=True)
+    if action.value == "view":
+        return await interaction.response.send_message(
+            f"🎂 Your birthday: **{DATA['birthdays'].get(key, 'Not set')}**", ephemeral=True
+        )
+    if not date or not re.fullmatch(r"(0[1-9]|[12]\d|3[01])/(0[1-9]|1[0-2])", date):
+        return await interaction.response.send_message("❌ Use `DD/MM`.", ephemeral=True)
+    DATA["birthdays"][key] = date
+    save_data()
+    await interaction.response.send_message(f"🎂 Birthday saved: **{date}**.", ephemeral=True)
+
+
+# ==========================================
+# 20. LISTENERS
+# ==========================================
+@bot.listen("on_message")
+async def moon_xp_listener(message: discord.Message):
+    if message.author.bot or not message.guild:
+        return
+    key = user_key(message.guild.id, message.author.id)
+    now = time.time()
+    if now - XP_LAST_MESSAGE.get(key, 0) < XP_COOLDOWN:
+        return
+    XP_LAST_MESSAGE[key] = now
+    stats = get_xp(message.guild.id, message.author.id)
+    old_level = stats["level"]
+    stats["xp"] += random.randint(8, 18)
+    stats["level"] = level_for_xp(stats["xp"])
+    save_data()
+    if stats["level"] > old_level:
+        try:
+            await message.channel.send(f"🎉 {message.author.mention} reached **Level {stats['level']}**!")
+        except discord.HTTPException:
+            pass
+
+@bot.listen("on_member_join")
+async def moon_welcome_listener(member: discord.Member):
+    update_peak_members(member.guild)
+    if not WELCOME_CHANNEL_ID:
+        return
+    channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+    if channel:
+        embed = discord.Embed(
+            title="🌙 Welcome To Moon Night!",
+            description=f"Hey {member.mention}! Welcome to **{member.guild.name}**.\nYou are member **#{member.guild.member_count}**.\n\nRead the rules and enjoy your stay! ✨",
+            color=EMBED_COLOR
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
+@bot.listen("on_member_remove")
+async def moon_leave_listener(member: discord.Member):
+    if LEAVE_CHANNEL_ID:
+        channel = member.guild.get_channel(LEAVE_CHANNEL_ID)
+        if channel:
+            try:
+                await channel.send(f"💔 **{member}** left Moon Night. We hope to see you again!")
+            except discord.HTTPException:
+                pass
+
+@bot.listen("on_voice_state_update")
+async def temporary_voice_listener(member, before, after):
+    if TEMP_VC_CHANNEL_ID and after.channel and after.channel.id == TEMP_VC_CHANNEL_ID:
+        try:
+            channel = await member.guild.create_voice_channel(
+                name=f"🔊 {member.display_name}'s Room",
+                category=after.channel.category,
+                reason="Moon Night temporary VC"
+            )
+            TEMP_VCS[channel.id] = member.id
+            await member.move_to(channel)
+        except discord.HTTPException:
+            pass
+    if before.channel and before.channel.id in TEMP_VCS and len(before.channel.members) == 0:
+        TEMP_VCS.pop(before.channel.id, None)
+        try:
+            await before.channel.delete(reason="Empty temporary VC")
+        except discord.HTTPException:
+            pass
+
+
 # ==========================================
 # MASTER SLASH COMMAND TO SEND PANELS
 # ==========================================
@@ -557,6 +1735,8 @@ async def send_panel(interaction: Interaction, panel: str):
 
 @bot.event
 async def on_ready():
+    for guild in bot.guilds:
+        update_peak_members(guild)
     print(f"Logged in as {bot.user.name} ({bot.user.id})")
 
 bot.run(BOT_TOKEN)
