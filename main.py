@@ -38,37 +38,82 @@ except Exception as exc:
     print(f"[VOICE DEPENDENCY] davey unavailable: {exc!r}")
 
 # discord.py needs the native Opus library for voice encoding.
+# Railway/Nixpacks may place libopus inside /nix/store instead of /usr/lib.
 OPUS_OK = False
+
 try:
     if discord.opus.is_loaded():
         OPUS_OK = True
         print("[OPUS] Opus is already loaded.")
     else:
+        import glob
+
         opus_candidates = [
             ctypes.util.find_library("opus"),
             "libopus.so.0",
             "libopus.so",
+            "/lib/x86_64-linux-gnu/libopus.so.0",
             "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+            "/lib/aarch64-linux-gnu/libopus.so.0",
             "/usr/lib/aarch64-linux-gnu/libopus.so.0",
+            "/lib/libopus.so.0",
             "/usr/lib/libopus.so.0",
             "/usr/local/lib/libopus.so.0",
         ]
+
+        # Nixpacks/Nix installs packages under /nix/store.
+        # Find libopus there automatically so the bot does not depend
+        # on one hard-coded Nix store hash/version.
+        opus_candidates.extend(glob.glob(
+            "/nix/store/*-libopus-*/lib/libopus.so.0"
+        ))
+        opus_candidates.extend(glob.glob(
+            "/nix/store/*-libopus-*/lib/libopus.so"
+        ))
+        opus_candidates.extend(glob.glob(
+            "/nix/store/*opus*/lib/libopus.so.0"
+        ))
+        opus_candidates.extend(glob.glob(
+            "/nix/store/*opus*/lib/libopus.so"
+        ))
+
+        # Remove duplicates while preserving order.
+        seen = set()
+        opus_candidates = [
+            x for x in opus_candidates
+            if x and not (x in seen or seen.add(x))
+        ]
+
         for opus_path in opus_candidates:
-            if not opus_path:
-                continue
             try:
                 print(f"[OPUS] Trying to load: {opus_path}")
                 discord.opus.load_opus(opus_path)
+
                 if discord.opus.is_loaded():
                     OPUS_OK = True
-                    print(f"[OPUS] Successfully loaded: {opus_path}")
+                    print(
+                        f"[OPUS] Successfully loaded: {opus_path}"
+                    )
                     break
-            except Exception as opus_exc:
-                print(f"[OPUS] Failed to load {opus_path}: {type(opus_exc).__name__}: {opus_exc!r}")
-except Exception as exc:
-    print(f"[OPUS] Loader error: {type(exc).__name__}: {exc!r}")
 
-print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK} | Opus={OPUS_OK}")
+            except Exception as opus_exc:
+                print(
+                    f"[OPUS] Failed to load {opus_path}: "
+                    f"{type(opus_exc).__name__}: {opus_exc!r}"
+                )
+
+except Exception as exc:
+    print(
+        f"[OPUS] Loader error: "
+        f"{type(exc).__name__}: {exc!r}"
+    )
+
+print(
+    f"[VOICE DEPENDENCIES] "
+    f"PyNaCl={PYNACL_OK} | "
+    f"davey={DAVEY_OK} | "
+    f"Opus={OPUS_OK}"
+)
 
 # ==========================================
 # CONFIGURATION & SETTINGS (Using Environment Variables)
