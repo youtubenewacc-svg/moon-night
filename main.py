@@ -13,6 +13,7 @@ import yt_dlp
 BOT_TOKEN = os.getenv("DISCORD_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "1241496820455313533"))
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))
+JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "1482902118137462896")) # Bdl id d jail role ila bghiti
 
 EMBED_COLOR = 0x2b2d31
 
@@ -35,7 +36,6 @@ class MoonNightBot(commands.Bot):
 
 bot = MoonNightBot()
 
-# Checks dyal Protection
 def is_owner_or_admin_slash():
     async def predicate(interaction: Interaction):
         if interaction.user.id == OWNER_ID or interaction.user.guild_permissions.administrator:
@@ -44,18 +44,37 @@ def is_owner_or_admin_slash():
         return False
     return app_commands.check(predicate)
 
-def is_owner_or_admin_ctx():
-    async def predicate(ctx):
-        if ctx.author.id == OWNER_ID or ctx.author.guild_permissions.administrator:
-            return True
-        await ctx.send("❌ Hada command privet ghir l Owner w Admins!", delete_after=5)
-        return False
-    return commands.check(predicate)
-
 
 # ==========================================
-# 1. PANELS & VIEWS (B SERVER ICON IMAGE)
+# 1. PANELS & VIEWS
 # ==========================================
+
+# --- SOCIALS PANEL (B SERVER ICON LI FIHA L-CADRE L-AHMAR) ---
+class SocialsView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(Button(label="Instagram", style=ButtonStyle.link, url="https://instagram.com"))
+        self.add_item(Button(label="Tiktok", style=ButtonStyle.link, url="https://tiktok.com"))
+        self.add_item(Button(label="IG Group", style=ButtonStyle.link, url="https://instagram.com"))
+        self.add_item(Button(label="Store", style=ButtonStyle.link, url="https://store.moonnight.com"))
+
+def get_socials_embed(guild: discord.Guild):
+    embed = discord.Embed(
+        title="Hey @everyone",
+        description=(
+            "-# > 𝗦𝘁𝗮𝘆 𝗰𝗼𝗻𝗻𝗲𝗰𝘁𝗲𝗱 𝘄𝗶𝘁𝗵 **𝗠𝗼𝗼𝗻 𝗡𝗶𝗴𝗵𝘁** 𝗼𝗻 𝗮𝗹𝗹 𝗼𝘂𝗿 𝗽𝗹𝗮𝘁𝗳𝗼𝗿𝗺𝘀.\n\n"
+            "### * **Instagram :** ***Follow us for news & highlights.***\n"
+            "### * **TikTok :** ***Follow us for videos & updates***\n"
+            "### * **IG Group :** ***Stay close to the community.***\n"
+            "### * **Store :** ***Shop exclusive Moon Night items.***\n\n"
+            "-# 𝑴𝒐𝒐𝒏 𝑵𝒊𝒈𝒉𝒕 𝑾𝒉𝒆𝒓𝒆 𝑴𝒐𝒎𝒆𝒏𝒕𝒔 𝑩𝒆𝒄𝒐𝒎𝒆 𝑴𝒆𝒎𝒐𝒓𝒊𝒆𝒔"
+        ),
+        color=EMBED_COLOR
+    )
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    return embed
+
 
 # --- RULES PANEL ---
 class RulesView(View):
@@ -69,36 +88,29 @@ def get_rules_embed(guild: discord.Guild):
         title="• Moon Night : Rules •",
         description=(
             "> To make Sure everyone enjoy, please follow those guidelines :\n\n"
-            "id ➔ Follow the [Discord TOS](https://dis.gd/tos) and The [Discord Community Guidelines](https://dis.gd/guidelines)\n"
-            "id ➔ **Aya NSFW content f server = jail**\n"
-            "id ➔ **Respect aya member f server, kifma kan!**\n"
-            "id ➔ **Abusing any power treportat biha b preuve = warn ➔ remove role**\n"
-            "id ➔ **Need help daret bach it7alo lmachakil, machi bach trolli, troll f nh = blacklist n.h.**\n"
-            "id ➔ **Sbek chi wahd 3ndo role (staff, high role, admin...) matseboch, tla3 need help reporti bih, ghadi itremova lih role**\n"
-            "id ➔ **Staff provoque 3liha punishment. pd: 3essas 9damet, jib chi haja jdida**\n"
-            "id ➔ **Bghiti trolli, tseb, tla9 sb's, dir one tap dialek, ou lockiha (.v lock) ou hara mat3ich, room opened = respect the rules!**\n"
-            "id ➔ **Abusa 3lik chi wahed 3ndo role (staff, high role, admin...) tla3 n.h. wla 7el ticket hna : <#1482902524376780932> ou ghadi it7ayed lih role**\n"
-            "id ➔ **Pub ou pub vc 3liha jail, chi wahd spammak, wla dar pub vc, tla3 need help ou report it (don't forget screen / record)**\n\n"
-            "id ➔ **Have questions or issues? Our team is ready to help you!**\n"
-            "id ➔ **Questions, problems, or requests? Open a ticket now!**"
+            "➔ Follow the [Discord TOS](https://dis.gd/tos) and The [Discord Community Guidelines](https://dis.gd/guidelines)\n"
+            "➔ **Aya NSFW content f server = jail**\n"
+            "➔ **Respect aya member f server, kifma kan!**\n"
+            "➔ **Abusing any power treportat biha b preuve = warn ⇝ remove role**\n"
+            "➔ **Need help daret bach it7alo lmachakil, machi bach trolli, troll f nh = blacklist n.h.**\n"
+            "➔ **Sbek chi wahd 3ndo role (staff, high role, admin...) matseboch, tla3 need help reporti bih, ghadi itremova lih role**\n"
+            "➔ **Staff provoque 3liha punishment**\n\n"
+            "-# `© 2026 Moon Night™. All rights reserved.`"
         ),
         color=EMBED_COLOR
     )
     if guild and guild.icon:
         embed.set_image(url=guild.icon.url)
-    embed.set_footer(text="© 2026 Moon Night™. All rights reserved.")
     return embed
 
 
-# --- SELF ROLES PANEL (B BUTTONS W SELECT MENU W ASSIGNMENT) ---
+# --- SELF ROLES PANEL (HYDNA MNHA PROFIL D SRV F L-BQYIN) ---
 class SelfRolesGamesSelect(Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Valorant", emoji="🎮", value="1482902155219304549"),
             discord.SelectOption(label="GTA V / Grand RP", emoji="🚗", value="1482902157324849333"),
-            discord.SelectOption(label="League of Legends", emoji="⚔️", value="1515406788395008170"),
-            discord.SelectOption(label="Minecraft", emoji="⛏️", value="1482902156364484661"),
-            discord.SelectOption(label="Free Fire", emoji="🔥", value="1482902134071754832")
+            discord.SelectOption(label="League of Legends", emoji="⚔️", value="1515406788395008170")
         ]
         super().__init__(placeholder="Select A Games Role!", options=options, custom_id="self_game_select")
 
@@ -134,7 +146,7 @@ class SelfRolesView(View):
 
     @discord.ui.button(label="• Heartless", style=ButtonStyle.secondary, custom_id="role_heartless")
     async def btn_heartless(self, interaction: Interaction, button: Button):
-        await self.toggle_role(interaction, 1482902118137462896) # Bdl id ila bghiti
+        await self.toggle_role(interaction, 1482902118137462896)
 
     @discord.ui.button(label="• Taken", style=ButtonStyle.secondary, custom_id="role_taken")
     async def btn_taken(self, interaction: Interaction, button: Button):
@@ -163,31 +175,75 @@ def get_selfroles_embeds(guild: discord.Guild):
         color=EMBED_COLOR
     )
     if guild and guild.icon:
-        embed1.set_thumbnail(url=guild.icon.url)
-    embed1.set_footer(text="© 2026 Moon Night. All rights reserved.")
+        embed1.set_thumbnail(url=guild.icon.url) # Ghi f lowel
 
     embed2 = discord.Embed(
         title=":gendersheaven: : Gender Roles ÷",
         description="### What's your gender?\n@Female\n@Male\n@Trans",
         color=EMBED_COLOR
     )
-    embed2.set_footer(text="© 2026 Moon Night. All rights reserved.")
 
     embed3 = discord.Embed(
         title=":game: : Games Roles ÷",
         description="### Do you play any games?",
         color=EMBED_COLOR
     )
-    embed3.set_footer(text="© 2026 Moon Night™. All rights reserved.")
-
     return [embed1, embed2, embed3]
 
 
-# --- ROLE REQUEST PANEL ---
+# --- ROLE REQUEST PANEL (B ACCEPT / REFUSE WORKFLOW) ---
+class RoleRequestActionView(View):
+    def __init__(self, user_id: int, category: str):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.category = category
+
+    @discord.ui.button(label="Accept", style=ButtonStyle.green, custom_id="req_accept_btn")
+    async def accept_btn(self, interaction: Interaction, button: Button):
+        guild = interaction.guild
+        user = guild.get_member(self.user_id)
+        
+        role_mapping = {
+            "req_powers": 1482902118137462896,
+            "req_special": 1482902117693001898,
+            "req_special2": 1482902116858331217,
+            "req_girls": 1482902047236952117
+        }
+        role_id = role_mapping.get(self.category)
+        if user and role_id:
+            role = guild.get_role(role_id)
+            if role:
+                await user.add_roles(role)
+
+        if user:
+            try:
+                await user.send(f"✅ Your role request for `{self.category}` has been **accepted** by {interaction.user.mention}!")
+            except:
+                pass
+
+        await interaction.response.send_message(f"✅ Accepted by {interaction.user.mention}.", ephemeral=True)
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+
+    @discord.ui.button(label="Refuse", style=ButtonStyle.red, custom_id="req_refuse_btn")
+    async def refuse_btn(self, interaction: Interaction, button: Button):
+        guild = interaction.guild
+        user = guild.get_member(self.user_id)
+        if user:
+            try:
+                await user.send(f"❌ Your role request for `{self.category}` was **refused** by {interaction.user.mention}.")
+            except:
+                pass
+        await interaction.response.send_message(f"❌ Refused by {interaction.user.mention}.", ephemeral=True)
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+
 class RoleRequestCategorySelect(Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Powers", description="Special Functionalities & Privileges", emoji="⚡", value="req_powers"),
+            discord.SelectOption(label="Powers", description="Special Functionalities", emoji="⚡", value="req_powers"),
             discord.SelectOption(label="Special Roles", description="Showcase Your Identity", emoji="💎", value="req_special"),
             discord.SelectOption(label="Special Roles 2", description="Given By Owners", emoji="🎩", value="req_special2"),
             discord.SelectOption(label="Girls Roles", description="Designed Especially For Girls", emoji="🌸", value="req_girls"),
@@ -203,9 +259,10 @@ class RoleRequestCategorySelect(Select):
         if interaction.user.avatar:
             embed.set_thumbnail(url=interaction.user.avatar.url)
         
+        view = RoleRequestActionView(user_id=interaction.user.id, category=category)
         if log_channel:
-            await log_channel.send(embed=embed)
-        await interaction.response.send_message(f"📩 Opened category: **{category}**, request sent to admins!", ephemeral=True)
+            await log_channel.send(embed=embed, view=view)
+        await interaction.response.send_message(f"📩 Request category `{category}` has been sent to admins!", ephemeral=True)
 
 class RoleRequestView(View):
     def __init__(self):
@@ -216,20 +273,35 @@ def get_rolerequest_embed():
     embed = discord.Embed(
         title="💦 You've Officially Unlocked The Right To Beg For Some Fancy Roles :",
         description=(
-            ":powersheaven: | **Powers**\n➔ Unlock Special Functionalities And Privileges Within The Server\n\n"
-            ":specialheaven1: | **Special Roles**\n➔ Showcase Your Identity With Distinctive And Stylish Roles\n\n"
-            ":special2heaven: | **Special Roles 2 (Only Given By Owners)**\n➔ Exclusive Titles Personally Assigned By The Server Owners\n\n"
-            ":girlsheaven: | **Girls Roles**\n➔ Express Your Personality With Roles Designed Especially For Girls\n\n"
-            ":removeheaven: | **Remove 1 Of Your Roles**\n➔ Get Rid Of That Cringe Role You Picked At 3AM\n\n"
-            ":clickheaven: | **Click The Select Menu Below And Choose Category**"
+            "⚡ | **Powers**\n➔ Unlock Special Functionalities And Privileges\n\n"
+            "💎 | **Special Roles**\n➔ Showcase Your Identity With Distinctive Roles\n\n"
+            "🎩 | **Special Roles 2 (Only Given By Owners)**\n➔ Exclusive Titles Assigned By Owners\n\n"
+            "🌸 | **Girls Roles**\n➔ Express Your Personality With Girls Roles\n\n"
+            "⭐ | **Remove 1 Of Your Roles**\n➔ Get Rid Of That Cringe Role\n\n"
+            "-# `© 2026 Moon Night™. All rights reserved.`"
         ),
         color=EMBED_COLOR
     )
-    embed.set_footer(text="© 2026 Moon Night™. All rights reserved.")
     return embed
 
 
-# --- STAFF APPLY PANEL (B SERVER ICON) ---
+# --- MAP GUIDE & STAFF APPLY PANELS ---
+def get_map_guide_embed(guild: discord.Guild):
+    embed = discord.Embed(
+        title="🗺️ Moon Night - Server Map & Guide",
+        description=(
+            "Welcome to **Moon Night**! Navigate the server easily:\n\n"
+            "📌 **#rules** - Read guidelines\n"
+            "🎭 **#self-roles** - Get profile roles\n"
+            "💬 **#general** - Chat with members\n"
+            "🔊 **Voice** - Temporary VC"
+        ),
+        color=EMBED_COLOR
+    )
+    if guild and guild.icon:
+        embed.set_image(url=guild.icon.url)
+    return embed
+
 class StaffApplyView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -238,110 +310,28 @@ class StaffApplyView(View):
     async def apply_staff(self, interaction: Interaction, button: Button):
         await interaction.response.send_message("📝 Staff application form coming soon!", ephemeral=True)
 
-    @discord.ui.button(label="Apply for Game Mods", style=ButtonStyle.success, custom_id="btn_apply_gamemods")
-    async def apply_gamemods(self, interaction: Interaction, button: Button):
-        await interaction.response.send_message("🎮 Game Mods application form coming soon!", ephemeral=True)
-
 def get_staff_apply_embed(guild: discord.Guild):
     embed = discord.Embed(
         title="Staff Apply For Moon Night ©",
-        description=(
-            "Moon Night © is now accepting staff applications! Be a part of our family! "
-            "We would love to bring new people to our team that would help grow this family together!\n\n"
-            "**• Staff**\n"
-            "• At Least 17 Years Old\n"
-            "• Voice Level 5+\n"
-            "• Active & Respectful\n\n"
-            "**• Game Mods**\n"
-            "• At Least 17 Years Old\n"
-            "• Voice Level 5+\n"
-            "• Active & Respectful"
-        ),
+        description="Accepting staff applications! Join our team and grow with us.\n\n**• Staff Requirements:** Active & 17+",
         color=EMBED_COLOR
     )
     if guild and guild.icon:
         embed.set_thumbnail(url=guild.icon.url)
-    embed.set_footer(text="Copyright © 2026 Lisa X Moon Night ©")
-    return embed
-
-
-# --- MAP GUIDE PANEL (B SERVER ICON) ---
-def get_map_guide_embed(guild: discord.Guild):
-    embed = discord.Embed(
-        title="🗺️ Moon Night - Server Map & Guide",
-        description=(
-            "Welcome to **Moon Night**! Here is your quick guide to navigate the server:\n\n"
-            "📌 <#1482902524376780932> - Read server rules & info.\n"
-            "🎭 **#self-roles** - Pick your roles.\n"
-            "💬 **#general** - Chat with community.\n"
-            "🔊 **Voice Channels** - Hangout & play games."
-        ),
-        color=EMBED_COLOR
-    )
-    if guild and guild.icon:
-        embed.set_image(url=guild.icon.url)
-    embed.set_footer(text="© 2026 Moon Night™. All rights reserved.")
-    return embed
-
-
-# --- SOCIALS & STATS ---
-class SocialsView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(Button(label="Instagram", style=ButtonStyle.link, url="https://instagram.com"))
-        self.add_item(Button(label="Tiktok", style=ButtonStyle.link, url="https://tiktok.com"))
-        self.add_item(Button(label="IG Group", style=ButtonStyle.link, url="https://instagram.com"))
-        self.add_item(Button(label="Store", style=ButtonStyle.link, url="https://store.moonnight.com"))
-
-def get_socials_embed():
-    embed = discord.Embed(
-        title="Hey @everyone",
-        description=(
-            "-# > 𝗦𝘁𝗮𝘆 𝗰𝗼𝗻𝗻𝗲𝗰𝘁𝗲𝗱 𝘄𝗶𝘁𝗵 **𝗠𝗼𝗼𝗻 𝗡𝗶𝗴𝗵𝘁** 𝗼𝗻 𝗮𝗹𝗹 𝗼𝘂𝗿 𝗽𝗹𝗮𝘁𝗳𝗼𝗿𝗺𝘀.\n\n"
-            "### * **Instagram :** *** Follow us for news & highlights. ***\n"
-            "### * **TikTok :** ***Follow us for videos & updates***\n"
-            "### * **IG Group :** *** Stay close to the community. ***\n"
-            "### * **Store :** *** Shop exclusive Moon Night items. ***\n\n"
-            "-# 𝑴𝒐𝒐𝒏 𝑵𝒊𝒈𝒉𝒕 𝑾𝒉𝒆𝒓𝒆 𝑴𝒐𝒎𝒆𝒏𝒕𝒔 𝑩𝒆𝒄𝒐𝒎𝒆 𝑩𝒆𝒎𝒐𝒓𝒊𝒆𝒔"
-        ),
-        color=EMBED_COLOR
-    )
-    return embed
-
-class StatsView(View):
-    def __init__(self, guild: discord.Guild):
-        super().__init__(timeout=None)
-        total = guild.member_count if guild else 0
-        voice = sum(len(c.members) for c in guild.voice_channels) if guild else 0
-        self.add_item(Button(label=f"Members : {total}", style=ButtonStyle.secondary, disabled=True))
-        self.add_item(Button(label=f"in Voice : {voice}", style=ButtonStyle.secondary, disabled=True))
-
-def get_stats_embed(guild: discord.Guild):
-    embed = discord.Embed(
-        title="Moon Night Statistics",
-        description=(
-            f"- **Total Members:** `{guild.member_count if guild else 0}` ⁘\n"
-            f"- **Active in Voice:** `{sum(len(c.members) for c in guild.voice_channels) if guild else 0}` ⁘\n"
-            f"- **Boosters:** `{guild.premium_subscription_count if guild else 0}` ⁘\n\n"
-            "Stay active, and enjoy your time in Moon Night"
-        ),
-        color=EMBED_COLOR
-    )
     return embed
 
 
 # ==========================================
-# MASTER PANEL SENDER COMMAND
+# 2. COMMAND SENDER PANEL
 # ==========================================
-@bot.tree.command(name="send_panel", description="Send Moon Night panels (Owner/Admin Only)")
+@bot.tree.command(name="send_panel", description="Send Moon Night panels")
 @app_commands.choices(panel=[
     app_commands.Choice(name="Rules", value="rules"),
     app_commands.Choice(name="Self Roles", value="selfroles"),
     app_commands.Choice(name="Role Request", value="rolerequest"),
     app_commands.Choice(name="Staff Apply", value="staffapply"),
     app_commands.Choice(name="Map Guide", value="mapguide"),
-    app_commands.Choice(name="Socials", value="socials"),
-    app_commands.Choice(name="Stats", value="stats")
+    app_commands.Choice(name="Socials", value="socials")
 ])
 @is_owner_or_admin_slash()
 async def send_panel(interaction: Interaction, panel: str):
@@ -357,186 +347,88 @@ async def send_panel(interaction: Interaction, panel: str):
     elif panel == "mapguide":
         await interaction.channel.send(embed=get_map_guide_embed(interaction.guild))
     elif panel == "socials":
-        await interaction.channel.send(embed=get_socials_embed(), view=SocialsView())
-    elif panel == "stats":
-        await interaction.channel.send(embed=get_stats_embed(interaction.guild), view=StatsView(interaction.guild))
+        await interaction.channel.send(embed=get_socials_embed(interaction.guild), view=SocialsView())
     
     await interaction.followup.send(f"✅ Panel **{panel}** sent successfully!", ephemeral=True)
 
 
 # ==========================================
-# 2. HELP SYSTEM
+# 3. MODERATION & VOICE SLASH COMMANDS
 # ==========================================
-HELP_DATA = {
-    "Information": [
-        [("=about", "About the bot."), ("=botinfo", "Bot statistics."), ("=help", "Shows this menu."), ("=invite", "Invite link.")],
-        [("=ping", "Pong! check latency"), ("=serverstats", "Display server stats."), ("=vc", "Voice channel stats.")]
-    ],
-    "Music": [
-        [("=join", "Join voice channel"), ("=leave", "Leave voice channel"), ("=play <url/name>", "Plays audio"), ("=stop", "Stops music")]
-    ],
-    "Voice": [
-        [("=moveme <user>", "Move to a member's VC"), ("=rvc", "Random VC user"), ("=vcdeafen <user>", "Deafen a member")],
-        [("=vcmute <user>", "Mute a member"), ("=vcunmute <user>", "Unmute a member")]
-    ],
-    "Moderation": [
-        [("=warn <user>", "Warn a user"), ("=unbankai <user>", "Remove ban"), ("=unjail <user>", "Remove from jail")]
-    ],
-    "Profile": [
-        [("=addbg", "Add background (Owner)"), ("=bgshop", "Buy backgrounds"), ("=fullprofile", "Full profile card")]
-    ]
-}
 
-CATEGORY_EMOJIS = {"Information": "ℹ️", "Music": "🎵", "Voice": "📢", "Moderation": "🔨", "Profile": "👤"}
-
-class HelpSelect(Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label=cat, emoji=CATEGORY_EMOJIS.get(cat, "📌"), description=f"Explore {cat} commands")
-            for cat in HELP_DATA.keys()
-        ]
-        super().__init__(placeholder="🔍 Choose a category...", options=options, custom_id="help_select")
-
-    async def callback(self, interaction: Interaction):
-        view: HelpView = self.view
-        view.current_category = self.values[0]
-        view.current_page = 0
-        await view.update_message(interaction)
-
-class HelpView(View):
-    def __init__(self):
-        super().__init__(timeout=180)
-        self.current_category = None
-        self.current_page = 0
-        self.add_item(HelpSelect())
-
-    def get_embed(self):
-        if not self.current_category:
-            embed = discord.Embed(title="🌙 Moon Night - Help Center", description="Welcome to the help menu! Choose a category from the select menu below.", color=EMBED_COLOR)
-            return embed
-        
-        pages = HELP_DATA[self.current_category]
-        page_cmds = pages[self.current_page]
-        
-        embed = discord.Embed(
-            title=f"{CATEGORY_EMOJIS.get(self.current_category, '')} {self.current_category} Commands",
-            description=f"**Category:** `{self.current_category}` | **Prefix:** `=`",
-            color=EMBED_COLOR
-        )
-        for cmd, desc in page_cmds:
-            embed.add_field(name=f"`{cmd}`", value=f"• {desc}", inline=False)
-            
-        embed.set_footer(text=f"Page {self.current_page + 1} of {len(pages)}")
-        return embed
-
-    def update_buttons(self):
-        self.btn_prev.disabled = self.current_category is None or self.current_page == 0
-        self.btn_next.disabled = self.current_category is None or self.current_page == len(HELP_DATA.get(self.current_category, [])) - 1
-        self.btn_home.disabled = self.current_category is None
-
-    async def update_message(self, interaction: Interaction):
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.get_embed(), view=self)
-
-    @discord.ui.button(label="Previous", style=ButtonStyle.secondary, custom_id="help_prev", emoji="⬅️", disabled=True)
-    async def btn_prev(self, interaction: Interaction, button: Button):
-        self.current_page -= 1
-        await self.update_message(interaction)
-
-    @discord.ui.button(label="Next", style=ButtonStyle.secondary, custom_id="help_next", emoji="➡️", disabled=True)
-    async def btn_next(self, interaction: Interaction, button: Button):
-        self.current_page += 1
-        await self.update_message(interaction)
-
-    @discord.ui.button(label="Home", style=ButtonStyle.primary, custom_id="help_home", emoji="🏠", disabled=True, row=2)
-    async def btn_home(self, interaction: Interaction, button: Button):
-        self.current_category = None
-        self.current_page = 0
-        await self.update_message(interaction)
-
-@bot.command(name="help")
-async def custom_help(ctx):
-    view = HelpView()
-    await ctx.send(embed=view.get_embed(), view=view)
-
-
-# ==========================================
-# 3. VOICE, MUSIC & MODERATION COMMANDS
-# ==========================================
-ytdl_opts = {'format': 'bestaudio/best', 'quiet': True, 'default_search': 'auto', 'source_address': '0.0.0.0'}
-ffmpeg_opts = {'options': '-vn'}
-ytdl = yt_dlp.YoutubeDL(ytdl_opts)
-
-@bot.command(name="join")
-async def join_vc(ctx):
-    if not ctx.author.voice:
-        return await ctx.send("❌ Khasak tkon f voice channel b3da!")
-    channel = ctx.author.voice.channel
-    if ctx.voice_client is not None:
-        await ctx.voice_client.move_to(channel)
-        return await ctx.send(f"✅ T7awelt l: **{channel.name}**")
-    await channel.connect()
-    await ctx.send(f"📢 Dkhalt l: **{channel.name}**")
-
-@bot.command(name="leave")
-async def leave_vc(ctx):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("👋 Kherjt mn l-voice channel.")
+@bot.tree.command(name="mute", description="Mute a member in text/chat (Add Jail role)")
+@app_commands.describe(member="Member to mute")
+@is_owner_or_admin_slash()
+async def slash_mute(interaction: Interaction, member: discord.Member):
+    role = interaction.guild.get_role(JAIL_ROLE_ID)
+    if role:
+        await member.add_roles(role)
+        await interaction.response.send_message(f"🔇 **{member.name}** t-muta (t-jata w ma b9ach ki9dr ykteb).")
     else:
-        await ctx.send("❌ Mamshtarekh f ta voice channel.")
+        await interaction.response.send_message("❌ Jail Role ID makaynch wla ghalat f configuration!", ephemeral=True)
 
-@bot.command(name="play")
-async def play_music(ctx, *, search: str):
-    if not ctx.author.voice:
-        return await ctx.send("❌ Khasak tkon f voice channel!")
-    if not ctx.voice_client:
-        await ctx.author.voice.channel.connect()
-
-    async with ctx.typing():
-        loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{search}", download=False))
-        if 'entries' in data:
-            data = data['entries'][0]
-        url = data['url']
-        title = data['title']
-        
-        ctx.voice_client.stop()
-        ctx.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_opts))
-        
-    await ctx.send(f"🎵 Playing: **{title}**")
-
-@bot.command(name="stop")
-async def stop_music(ctx):
-    if ctx.voice_client and ctx.voice_client.is_playing():
-        ctx.voice_client.stop()
-        await ctx.send("🛑 Music stopped.")
+@bot.tree.command(name="unmute", description="Unmute a member from jail")
+@app_commands.describe(member="Member to unmute")
+@is_owner_or_admin_slash()
+async def slash_unmute(interaction: Interaction, member: discord.Member):
+    role = interaction.guild.get_role(JAIL_ROLE_ID)
+    if role and role in member.roles:
+        await member.remove_roles(role)
+        await interaction.response.send_message(f"🔊 **{member.name}** t-unmuta (kherj mn jail).")
     else:
-        await ctx.send("❌ Walou khdam daba.")
+        await interaction.response.send_message("❌ Had l-member mashi f jail wla role makaynch.", ephemeral=True)
 
-@bot.command(name="ping")
-async def cmd_ping(ctx):
-    await ctx.send(f"🏓 Pong! Latency: `{round(bot.latency * 1000)}ms`")
+@bot.tree.command(name="disconnect", description="Disconnect a member from voice channel")
+@app_commands.describe(member="Member to disconnect")
+@is_owner_or_admin_slash()
+async def slash_disconnect(interaction: Interaction, member: discord.Member):
+    if member.voice:
+        await member.move_to(None)
+        await interaction.response.send_message(f"🔌 **{member.name}** t-twa hrg mn voice channel.")
+    else:
+        await interaction.response.send_message("❌ Had l-member makaynch f ta voice channel!", ephemeral=True)
 
-@bot.command(name="warn")
-@is_owner_or_admin_ctx()
-async def cmd_warn(ctx, member: discord.Member, *, reason="No reason"):
-    await ctx.send(f"⚠️ **{member.name}** t3tato inndar! Sabab: {reason}")
+@bot.tree.command(name="move", description="Move a member to your voice channel")
+@app_commands.describe(member="Member to move")
+@is_owner_or_admin_slash()
+async def slash_move(interaction: Interaction, member: discord.Member):
+    if not interaction.user.voice:
+        return await interaction.response.send_message("❌ Khasak tkon f voice channel b3da!", ephemeral=True)
+    if not member.voice:
+        return await interaction.response.send_message("❌ Had l-member makaynch f voice channel!", ephemeral=True)
+    
+    channel = interaction.user.voice.channel
+    await member.move_to(channel)
+    await interaction.response.send_message(f"📥 T-movi **{member.name}** l voice dyalk: **{channel.name}**")
 
-@bot.command(name="unjail")
-@is_owner_or_admin_ctx()
-async def cmd_unjail(ctx, member: discord.Member):
-    await ctx.send(f"🔓 **{member.name}** kherj mn l-jail.")
-
-@bot.command(name="vcmute")
-@is_owner_or_admin_ctx()
-async def cmd_vcmute(ctx, member: discord.Member):
+@bot.tree.command(name="vcmute", description="Mute member in voice")
+@app_commands.describe(member="Member to vc mute")
+@is_owner_or_admin_slash()
+async def slash_vcmute(interaction: Interaction, member: discord.Member):
     if member.voice:
         await member.edit(mute=True)
-        await ctx.send(f"🔇 {member.mention} t-muta f voice.")
+        await interaction.response.send_message(f"🔇 {member.mention} t-muta f voice.")
     else:
-        await ctx.send("❌ Hada makaynch f voice!")
+        await interaction.response.send_message("❌ Makaynch f voice!", ephemeral=True)
 
+@bot.tree.command(name="vcunmute", description="Unmute member in voice")
+@app_commands.describe(member="Member to vc unmute")
+@is_owner_or_admin_slash()
+async def slash_vcunmute(interaction: Interaction, member: discord.Member):
+    if member.voice:
+        await member.edit(mute=False)
+        await interaction.response.send_message(f"🔊 {member.mention} t-unmuta f voice.")
+    else:
+        await interaction.response.send_message("❌ Makaynch f voice!", ephemeral=True)
+
+@bot.tree.command(name="ping", description="Check bot latency")
+async def slash_ping(interaction: Interaction):
+    await interaction.response.send_message(f"🏓 Pong! Latency: `{round(bot.latency * 1000)}ms`")
+
+
+# ==========================================
+# 4. BOT ON READY
+# ==========================================
 @bot.event
 async def on_ready():
     print(f"✅ Bot Online: {bot.user.name} ({bot.user.id})")
