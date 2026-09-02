@@ -387,7 +387,7 @@ def get_rules_embed():
         color=EMBED_COLOR
     )
     embed.set_author(name="⠀" * 15 + "・Moon Night : Rules・" + "⠀" * 15)
-    embed.set_thumbnail(url="https://i.imgur.com/9O3X3M7.png")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
     return embed
 
 
@@ -416,7 +416,7 @@ def get_map_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/x07X44a.png")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
     return embed
 
 
@@ -459,7 +459,7 @@ def get_apply_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/a4E40k2.png")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
     return embed
 
 
@@ -555,7 +555,7 @@ def get_booster_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url="https://i.imgur.com/booster_money.png")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&")
     return embed
 
 
@@ -1087,11 +1087,7 @@ class MusicPlayer:
         return None
 
     def ffmpeg_source(self, track):
-        """Create an Opus stream directly from FFmpeg.
-
-        This avoids discord.py's native libopus encoder, which is the part
-        currently failing on Railway with OpusNotLoaded.
-        """
+        """Create a PCM audio stream from FFmpeg for discord.py."""
         url = track["url"]
         filter_args = self.filter_args()
         before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
@@ -1106,20 +1102,22 @@ class MusicPlayer:
             ) + "\r\n"
             before += f' -headers "{header_lines}"'
 
-        options = f"-vn -af volume={self.volume:.3f}"
+        options = f"-vn -ar 48000 -ac 2 -af volume={self.volume:.3f}"
         if filter_args:
-            # filter_args already starts with -af; combine it with volume.
-            options = f"-vn {filter_args},volume={self.volume:.3f}"
+            # filter_args already starts with -af; append volume to the filter chain.
+            filter_chain = filter_args[len("-af "):]
+            options = f"-vn -ar 48000 -ac 2 -af {filter_chain},volume={self.volume:.3f}"
 
         executable = get_ffmpeg_executable()
 
-        return discord.FFmpegOpusAudio(
+        # Use PCM output and let discord.py handle the Opus encoding.
+        # This avoids FFmpeg's libopus encoder crash (exit code -11) seen
+        # on some Railway environments.
+        return discord.FFmpegPCMAudio(
             url,
             executable=executable,
             before_options=before,
             options=options,
-            codec="libopus",
-            bitrate=128,
         )
 
 
@@ -1199,6 +1197,14 @@ async def ensure_voice(interaction: Interaction):
         await interaction.followup.send(
             "❌ Voice is unavailable because **davey** is not installed. "
             "Add `davey` to requirements.txt and redeploy with cleared cache.",
+            ephemeral=True,
+        )
+        return None
+
+    if not OPUS_OK:
+        await interaction.followup.send(
+            "❌ Voice is unavailable because native **libopus** could not be loaded. "
+            "Install libopus on Railway and redeploy.",
             ephemeral=True,
         )
         return None
@@ -1514,7 +1520,7 @@ async def music_volume(
     player = music_player(interaction.guild.id)
     player.volume = percent / 100
     vc = interaction.guild.voice_client
-    # FFmpegOpusAudio applies volume inside FFmpeg when a new track starts.
+    # FFmpeg applies volume when a new track starts.
     # The current track is intentionally not restarted just to change volume.
     await interaction.response.send_message(
         f"🔊 Volume set to **{percent}%**."
@@ -2446,8 +2452,8 @@ if not BOT_TOKEN:
 
 print(f"[VOICE DEPENDENCIES] PyNaCl={PYNACL_OK} | davey={DAVEY_OK} | NativeOpus={OPUS_OK}")
 if not OPUS_OK:
-    print("[VOICE] Native libopus is unavailable, but music uses FFmpeg direct Opus and can still play.")
+    print("[VOICE] Native libopus is unavailable. Music playback will be disabled until libopus is installed.")
 else:
-    print("[VOICE] Native Opus is available; FFmpeg direct Opus is used for music playback.")
+    print("[VOICE] Native Opus is available; FFmpeg PCM playback is enabled.")
 
 bot.run(BOT_TOKEN)
