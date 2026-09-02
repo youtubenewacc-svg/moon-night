@@ -3,3 +3,4 @@ PyNaCl>=1.5
 davey
 yt-dlp[default]
 async-timeout>=5
+imageio-ffmpeg>=0.6
