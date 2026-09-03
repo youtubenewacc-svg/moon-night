@@ -982,12 +982,9 @@ def get_role_request_embed():
 # ==========================================
 # 9. 🐦 DARK NIGHT TWEETS
 # ==========================================
-# Tweets are native Discord embeds:
-# - No external image host is required.
-# - The member avatar is a small thumbnail.
-# - The tweet text is large and clean inside the embed.
-# - Dark/Light changes the embed theme.
-# - The real Discord member is mentioned in the message.
+# Dark + Light tweet artwork.
+# Both themes use the EXACT same layout; only the colors/background change.
+# Light Tweet = clean white card + blue Moon Night decoration.
 
 TWEET_WIDTH = 1200
 TWEET_HEIGHT = 675
@@ -996,15 +993,18 @@ TWEET_HEIGHT = 675
 def _tweet_font(size, bold=False):
     if not PIL_OK:
         return None
+
     candidates = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     ]
+
     for path in candidates:
         try:
             return ImageFont.truetype(path, size)
         except Exception:
             pass
+
     return ImageFont.load_default()
 
 
@@ -1012,150 +1012,542 @@ def _tweet_wrap(draw, text, font, max_width):
     words = text.split()
     if not words:
         return [""]
-    lines, current = [], ""
+
+    lines = []
+    current = ""
+
     for word in words:
         test = word if not current else current + " " + word
+
         if draw.textbbox((0, 0), test, font=font)[2] <= max_width:
             current = test
         else:
             if current:
                 lines.append(current)
             current = word
+
     if current:
         lines.append(current)
+
     return lines[:8]
 
 
 def _download_avatar(url, size=112):
     if not PIL_OK:
         return None
+
     try:
-        req = urllib.request.Request(str(url), headers={"User-Agent": "DarkNightBot/1.0"})
+        req = urllib.request.Request(
+            str(url),
+            headers={"User-Agent": "DarkNightBot/1.0"},
+        )
+
         with urllib.request.urlopen(req, timeout=6) as response:
             raw = response.read()
+
         avatar = Image.open(io.BytesIO(raw)).convert("RGBA")
-        avatar = ImageOps.fit(avatar, (size, size), method=Image.Resampling.LANCZOS)
+        avatar = ImageOps.fit(
+            avatar,
+            (size, size),
+            method=Image.Resampling.LANCZOS,
+        )
+
         mask = Image.new("L", (size, size), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
-        out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        ImageDraw.Draw(mask).ellipse(
+            (0, 0, size, size),
+            fill=255,
+        )
+
+        out = Image.new(
+            "RGBA",
+            (size, size),
+            (0, 0, 0, 0),
+        )
+
         out.paste(avatar, (0, 0), mask)
         return out
+
     except Exception as exc:
         print(f"[TWEET IMAGE] Avatar load failed: {exc!r}")
         return None
 
 
-def _draw_avatar_fallback(draw, member, x, y, size, primary, accent):
-    draw.ellipse((x, y, x + size, y + size), fill=accent)
-    initials = "".join(part[:1] for part in member.display_name.split()[:2]).upper() or "?"
+def _draw_avatar_fallback(
+    draw,
+    member,
+    x,
+    y,
+    size,
+    primary,
+    accent,
+):
+    draw.ellipse(
+        (x, y, x + size, y + size),
+        fill=accent,
+    )
+
+    initials = (
+        "".join(
+            part[:1]
+            for part in member.display_name.split()[:2]
+        ).upper()
+        or "?"
+    )
+
     font = _tweet_font(34, True)
-    bbox = draw.textbbox((0, 0), initials, font=font)
-    draw.text((x + (size - (bbox[2]-bbox[0]))/2, y + (size - (bbox[3]-bbox[1]))/2 - 4), initials, font=font, fill=primary)
+    bbox = draw.textbbox(
+        (0, 0),
+        initials,
+        font=font,
+    )
+
+    draw.text(
+        (
+            x + (size - (bbox[2] - bbox[0])) / 2,
+            y + (size - (bbox[3] - bbox[1])) / 2 - 4,
+        ),
+        initials,
+        font=font,
+        fill=primary,
+    )
 
 
-async def create_tweet_image(member: discord.Member, text: str, theme: str):
-    """Create the compact tweet card shown inside the Discord embed."""
+async def create_tweet_image(
+    member: discord.Member,
+    text: str,
+    theme: str,
+):
+    """
+    Create the tweet artwork.
+
+    Dark:
+        Dark background + dark card + white text.
+
+    Light:
+        White/light background + pure white card + dark text
+        + blue Moon Night decoration.
+
+    IMPORTANT:
+    The layout is identical for both themes.
+    Only colors/decorations change.
+    """
+
     if not PIL_OK:
         return None
 
     dark = theme == "dark"
-    bg = (14, 14, 17, 255) if dark else (244, 246, 250, 255)
-    card = (22, 23, 27, 255) if dark else (255, 255, 255, 255)
-    primary = (247, 248, 250, 255) if dark else (24, 26, 31, 255)
-    secondary = (155, 161, 171, 255) if dark else (95, 101, 112, 255)
-    divider = (52, 54, 61, 255) if dark else (221, 224, 230, 255)
-    accent = (111, 78, 255, 255)
+
+    # ======================================================
+    # THEME COLORS
+    # ======================================================
+
+    if dark:
+        bg = (13, 14, 18, 255)
+        card = (22, 23, 27, 255)
+        primary = (247, 248, 250, 255)
+        secondary = (155, 161, 171, 255)
+        divider = (52, 54, 61, 255)
+        accent = (111, 78, 255, 255)
+        accent_soft = (45, 38, 90, 180)
+        accent_soft_2 = (54, 43, 110, 150)
+        card_outline = (74, 70, 90, 255)
+        pill_bg = accent
+        pill_text_color = (255, 255, 255, 255)
+        moon_bg = bg
+
+    else:
+        # LIGHT TWEET:
+        # clean white/blue design matching the requested reference.
+        bg = (244, 247, 252, 255)
+        card = (255, 255, 255, 255)
+        primary = (24, 27, 34, 255)
+        secondary = (91, 99, 112, 255)
+        divider = (220, 224, 232, 255)
+        accent = (48, 111, 237, 255)
+        accent_soft = (215, 229, 255, 255)
+        accent_soft_2 = (226, 236, 255, 255)
+        card_outline = (211, 217, 228, 255)
+        pill_bg = accent
+        pill_text_color = (255, 255, 255, 255)
+        moon_bg = bg
+
     heart = (235, 68, 92, 255)
 
-    image = Image.new("RGBA", (TWEET_WIDTH, TWEET_HEIGHT), bg)
+    image = Image.new(
+        "RGBA",
+        (TWEET_WIDTH, TWEET_HEIGHT),
+        bg,
+    )
+
     draw = ImageDraw.Draw(image)
 
-    # Soft decorative background, without any external image or Imgur dependency.
-    draw.ellipse((-220, -260, 520, 460), fill=(45, 38, 90, 150) if dark else (219, 229, 255, 255))
-    draw.ellipse((850, -240, 1370, 280), fill=(54, 43, 110, 130) if dark else (220, 232, 255, 255))
+    # ======================================================
+    # DECORATIVE BACKGROUND
+    # ======================================================
 
-    # Compact card — intentionally not full-canvas content.
+    if dark:
+        draw.ellipse(
+            (-220, -260, 520, 460),
+            fill=accent_soft,
+        )
+        draw.ellipse(
+            (850, -240, 1370, 280),
+            fill=accent_soft_2,
+        )
+    else:
+        # Soft blue waves/circles like the Light Tweet reference.
+        draw.ellipse(
+            (-260, -300, 540, 470),
+            fill=accent_soft,
+        )
+        draw.ellipse(
+            (865, -255, 1390, 275),
+            fill=accent_soft_2,
+        )
+
+        # Small decorative dots.
+        dot_points = [
+            (125, 82, 5),
+            (180, 58, 3),
+            (235, 96, 4),
+            (1010, 78, 4),
+            (1075, 115, 3),
+            (1115, 62, 4),
+        ]
+
+        for dx, dy, radius in dot_points:
+            draw.ellipse(
+                (
+                    dx - radius,
+                    dy - radius,
+                    dx + radius,
+                    dy + radius,
+                ),
+                fill=accent,
+            )
+
+    # ======================================================
+    # MAIN CARD
+    # ======================================================
+
     cx1, cy1, cx2, cy2 = 78, 105, 1122, 570
-    draw.rounded_rectangle((cx1, cy1, cx2, cy2), radius=30, fill=card, outline=(74, 70, 90, 255) if dark else (213, 216, 223, 255), width=2)
 
-    # Header branding.
+    draw.rounded_rectangle(
+        (cx1, cy1, cx2, cy2),
+        radius=30,
+        fill=card,
+        outline=card_outline,
+        width=2,
+    )
+
+    # ======================================================
+    # FONTS
+    # ======================================================
+
     title_font = _tweet_font(34, True)
     small_font = _tweet_font(20, False)
     name_font = _tweet_font(31, True)
     handle_font = _tweet_font(21, False)
     body_font = _tweet_font(38, False)
     stat_font = _tweet_font(19, True)
+    pill_font = _tweet_font(18, True)
+    check_font = _tweet_font(17, True)
+    time_font = _tweet_font(18, False)
 
-    draw.text((cx1 + 36, 34), "Dark Night Community", font=title_font, fill=primary)
-    draw.text((cx1 + 36, 72), "COMMUNITY TWEET", font=small_font, fill=secondary)
+    # ======================================================
+    # HEADER BRANDING
+    # ======================================================
 
-    # Small moon mark, no remote logo required.
-    draw.ellipse((1030, 38, 1070, 78), fill=accent)
-    draw.ellipse((1044, 30, 1075, 66), fill=bg)
+    draw.text(
+        (cx1 + 36, 34),
+        "Dark Night Community",
+        font=title_font,
+        fill=primary,
+    )
+
+    draw.text(
+        (cx1 + 36, 72),
+        "COMMUNITY TWEET",
+        font=small_font,
+        fill=secondary,
+    )
+
+    # ======================================================
+    # MOON ICON
+    # ======================================================
+
+    draw.ellipse(
+        (1030, 38, 1070, 78),
+        fill=accent,
+    )
+
+    draw.ellipse(
+        (1044, 30, 1075, 66),
+        fill=moon_bg,
+    )
+
+    # ======================================================
+    # USER AVATAR
+    # ======================================================
 
     avatar_size = 86
-    ax, ay = cx1 + 38, cy1 + 36
-    avatar = await asyncio.to_thread(_download_avatar, member.display_avatar.url, avatar_size)
+    ax = cx1 + 38
+    ay = cy1 + 36
+
+    avatar = await asyncio.to_thread(
+        _download_avatar,
+        member.display_avatar.url,
+        avatar_size,
+    )
+
     if avatar:
-        image.paste(avatar, (ax, ay), avatar)
-        draw.ellipse((ax - 3, ay - 3, ax + avatar_size + 3, ay + avatar_size + 3), outline=accent, width=4)
+        image.paste(
+            avatar,
+            (ax, ay),
+            avatar,
+        )
+
+        draw.ellipse(
+            (
+                ax - 3,
+                ay - 3,
+                ax + avatar_size + 3,
+                ay + avatar_size + 3,
+            ),
+            outline=accent,
+            width=4,
+        )
+
     else:
-        _draw_avatar_fallback(draw, member, ax, ay, avatar_size, primary, accent)
+        _draw_avatar_fallback(
+            draw,
+            member,
+            ax,
+            ay,
+            avatar_size,
+            primary,
+            accent,
+        )
+
+    # ======================================================
+    # USER NAME + VERIFIED
+    # ======================================================
 
     name_x = ax + avatar_size + 24
-    draw.text((name_x, ay + 3), member.display_name[:28], font=name_font, fill=primary)
-    verified_x = name_x + draw.textbbox((0, 0), member.display_name[:28], font=name_font)[2] + 10
-    draw.ellipse((verified_x, ay + 10, verified_x + 24, ay + 34), fill=accent)
-    check_font = _tweet_font(17, True)
-    draw.text((verified_x + 6, ay + 9), "✓", font=check_font, fill=(255,255,255,255))
-    draw.text((name_x, ay + 42), f"@{member.name}", font=handle_font, fill=secondary)
+    display_name = member.display_name[:28]
 
-    # Theme pill.
-    pill_text = "DARK TWEET" if dark else "WHITE TWEET"
-    pill_font = _tweet_font(18, True)
-    pb = draw.textbbox((0, 0), pill_text, font=pill_font)
+    draw.text(
+        (name_x, ay + 3),
+        display_name,
+        font=name_font,
+        fill=primary,
+    )
+
+    name_width = draw.textbbox(
+        (0, 0),
+        display_name,
+        font=name_font,
+    )[2]
+
+    verified_x = name_x + name_width + 10
+
+    draw.ellipse(
+        (
+            verified_x,
+            ay + 10,
+            verified_x + 24,
+            ay + 34,
+        ),
+        fill=accent,
+    )
+
+    draw.text(
+        (verified_x + 6, ay + 9),
+        "✓",
+        font=check_font,
+        fill=(255, 255, 255, 255),
+    )
+
+    draw.text(
+        (name_x, ay + 42),
+        f"@{member.name}",
+        font=handle_font,
+        fill=secondary,
+    )
+
+    # ======================================================
+    # THEME PILL
+    # ======================================================
+
+    pill_text = "DARK TWEET" if dark else "LIGHT TWEET"
+
+    pb = draw.textbbox(
+        (0, 0),
+        pill_text,
+        font=pill_font,
+    )
+
     pw = pb[2] - pb[0] + 34
-    draw.rounded_rectangle((cx2 - pw - 28, cy1 + 34, cx2 - 28, cy1 + 72), radius=19, fill=accent if dark else (231, 235, 242, 255))
-    draw.text((cx2 - pw - 11, cy1 + 43), pill_text, font=pill_font, fill=(255,255,255,255) if dark else primary)
 
-    # Tweet body.
-    lines = _tweet_wrap(draw, " ".join(text.strip().split()), body_font, cx2 - cx1 - 90)
+    draw.rounded_rectangle(
+        (
+            cx2 - pw - 28,
+            cy1 + 34,
+            cx2 - 28,
+            cy1 + 72,
+        ),
+        radius=19,
+        fill=pill_bg,
+    )
+
+    draw.text(
+        (cx2 - pw - 11, cy1 + 43),
+        pill_text,
+        font=pill_font,
+        fill=pill_text_color,
+    )
+
+    # ======================================================
+    # TWEET BODY
+    # ======================================================
+
+    clean_text = " ".join(
+        text.strip().split()
+    )
+
+    lines = _tweet_wrap(
+        draw,
+        clean_text,
+        body_font,
+        cx2 - cx1 - 90,
+    )
+
     body_y = cy1 + 145
+
     for line in lines:
-        draw.text((cx1 + 38, body_y), line, font=body_font, fill=primary)
+        draw.text(
+            (cx1 + 38, body_y),
+            line,
+            font=body_font,
+            fill=primary,
+        )
         body_y += 48
 
-    # Footer stats in ONE ROW, as requested.
+    # ======================================================
+    # FOOTER STATS — ONE ROW
+    # ======================================================
+
     divider_y = cy2 - 92
-    draw.line((cx1 + 38, divider_y, cx2 - 38, divider_y), fill=divider, width=2)
+
+    draw.line(
+        (
+            cx1 + 38,
+            divider_y,
+            cx2 - 38,
+            divider_y,
+        ),
+        fill=divider,
+        width=2,
+    )
+
     stats_y = divider_y + 28
-    stats = [("◉", "0 Replies", secondary), ("♥", "0 Likes", heart), ("◌", "0 Views", secondary)]
+
+    stats = [
+        ("◉", "0 Replies", secondary),
+        ("♥", "0 Likes", heart),
+        ("◌", "0 Views", secondary),
+    ]
+
     sx = cx1 + 38
-    for icon, label, color in stats:
-        draw.text((sx, stats_y), icon, font=stat_font, fill=color)
-        ib = draw.textbbox((0, 0), icon, font=stat_font)
-        draw.text((sx + (ib[2]-ib[0]) + 9, stats_y), label, font=stat_font, fill=primary)
+
+    for icon, label, stat_color in stats:
+        draw.text(
+            (sx, stats_y),
+            icon,
+            font=stat_font,
+            fill=stat_color,
+        )
+
+        ib = draw.textbbox(
+            (0, 0),
+            icon,
+            font=stat_font,
+        )
+
+        draw.text(
+            (
+                sx + (ib[2] - ib[0]) + 9,
+                stats_y,
+            ),
+            label,
+            font=stat_font,
+            fill=primary,
+        )
+
         sx += 205
 
-    # Bottom-right time/date and community branding.
+    # ======================================================
+    # TIME + BRANDING
+    # ======================================================
+
     now = datetime.now(timezone.utc)
-    time_font = _tweet_font(18, False)
-    date_text = now.strftime("%H:%M • %d %B %Y")
-    draw.text((cx1 + 38, cy2 + 10), date_text, font=time_font, fill=secondary)
+
+    date_text = now.strftime(
+        "%H:%M • %d %B %Y"
+    )
+
+    draw.text(
+        (cx1 + 38, cy2 + 10),
+        date_text,
+        font=time_font,
+        fill=secondary,
+    )
+
     brand = "Dark Night Community"
-    bb = draw.textbbox((0, 0), brand, font=time_font)
-    draw.text((cx2 - 38 - (bb[2]-bb[0]), cy2 + 10), brand, font=time_font, fill=secondary)
+
+    bb = draw.textbbox(
+        (0, 0),
+        brand,
+        font=time_font,
+    )
+
+    draw.text(
+        (
+            cx2 - 38 - (bb[2] - bb[0]),
+            cy2 + 10,
+        ),
+        brand,
+        font=time_font,
+        fill=secondary,
+    )
+
+    # ======================================================
+    # EXPORT
+    # ======================================================
 
     output = io.BytesIO()
-    image.convert("RGB").save(output, format="PNG", optimize=True)
+
+    image.convert("RGB").save(
+        output,
+        format="PNG",
+        optimize=True,
+    )
+
     output.seek(0)
+
     return output
 
 
 class TweetModal(Modal):
     def __init__(self, theme: str):
         self.theme = theme
-        super().__init__(title="Dark Tweet" if theme == "dark" else "White Tweet")
+
+        super().__init__(
+            title="Dark Tweet"
+            if theme == "dark"
+            else "Light Tweet"
+        )
+
         self.thought = TextInput(
             label="Your thought",
             placeholder="Write your tweet...",
@@ -1164,57 +1556,137 @@ class TweetModal(Modal):
             max_length=700,
             required=True,
         )
+
         self.add_item(self.thought)
 
     async def on_submit(self, interaction: Interaction):
-        await interaction.response.defer(ephemeral=True)
-        post_channel_id = CHANNEL_IDS.get("tweets", 0)
-        post_channel = interaction.guild.get_channel(post_channel_id) if interaction.guild and post_channel_id else None
-        if not isinstance(post_channel, discord.TextChannel):
+        await interaction.response.defer(
+            ephemeral=True
+        )
+
+        post_channel_id = CHANNEL_IDS.get(
+            "tweets",
+            0,
+        )
+
+        post_channel = (
+            interaction.guild.get_channel(
+                post_channel_id
+            )
+            if interaction.guild
+            and post_channel_id
+            else None
+        )
+
+        if not isinstance(
+            post_channel,
+            discord.TextChannel,
+        ):
             return await interaction.followup.send(
-                "❌ Tweet channel is not configured. Set `CHANNEL_IDS['tweets']` at the top of `main.py`.",
+                "❌ Tweet channel is not configured. "
+                "Set `CHANNEL_IDS['tweets']` at the top of `main.py`.",
                 ephemeral=True,
             )
 
-        tweet_text = " ".join(self.thought.value.strip().split())
-        now = datetime.now(timezone.utc)
-        image_bytes = await create_tweet_image(interaction.user, tweet_text, self.theme)
+        tweet_text = " ".join(
+            self.thought.value.strip().split()
+        )
 
-        # The Discord embed is only the frame. The actual tweet design is the compact image inside it.
+        now = datetime.now(timezone.utc)
+
+        image_bytes = await create_tweet_image(
+            interaction.user,
+            tweet_text,
+            self.theme,
+        )
+
+        # The Discord embed is only the outer frame.
+        # The complete tweet design is rendered as PNG.
         embed = discord.Embed(
-            title=f"🐦 New Tweet By · @{interaction.user.name}",
-            color=0x111318 if self.theme == "dark" else 0xE8EBF0,
+            title=(
+                f"🐦 New Tweet By · "
+                f"@{interaction.user.name}"
+            ),
+            color=(
+                0x111318
+                if self.theme == "dark"
+                else 0x2F6FED
+            ),
             timestamp=now,
         )
-        embed.set_footer(text="Dark Night Community • Share your thoughts")
+
+        embed.set_footer(
+            text="Dark Night Community • Share your thoughts"
+        )
 
         if image_bytes is not None:
-            file = discord.File(image_bytes, filename="dark_night_tweet.png")
-            embed.set_image(url="attachment://dark_night_tweet.png")
+            file = discord.File(
+                image_bytes,
+                filename="dark_night_tweet.png",
+            )
+
+            embed.set_image(
+                url="attachment://dark_night_tweet.png"
+            )
+
             published_message = await post_channel.send(
                 content=interaction.user.mention,
                 embed=embed,
                 file=file,
-                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                allowed_mentions=discord.AllowedMentions(
+                    users=[interaction.user]
+                ),
             )
+
         else:
-            # Clean fallback if Pillow is ever unavailable.
-            embed.add_field(name="💬 Replies", value="`0`", inline=True)
-            embed.add_field(name="❤️ Likes", value="`0`", inline=True)
-            embed.add_field(name="👁️ Views", value="`0`", inline=True)
+            # Clean fallback if Pillow is unavailable.
+            embed.add_field(
+                name="💬 Replies",
+                value="`0`",
+                inline=True,
+            )
+
+            embed.add_field(
+                name="❤️ Likes",
+                value="`0`",
+                inline=True,
+            )
+
+            embed.add_field(
+                name="👁️ Views",
+                value="`0`",
+                inline=True,
+            )
+
             published_message = await post_channel.send(
                 content=interaction.user.mention,
                 embed=embed,
-                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                allowed_mentions=discord.AllowedMentions(
+                    users=[interaction.user]
+                ),
             )
 
-        jump_url = f"https://discord.com/channels/{interaction.guild.id}/{post_channel.id}/{published_message.id}"
+        jump_url = (
+            f"https://discord.com/channels/"
+            f"{interaction.guild.id}/"
+            f"{post_channel.id}/"
+            f"{published_message.id}"
+        )
+
         success = discord.Embed(
             title="✅ Tweet Posted",
-            description=f"Your tweet is live in {post_channel.mention}.\n[Jump to tweet]({jump_url})",
+            description=(
+                f"Your tweet is live in "
+                f"{post_channel.mention}.\n"
+                f"[Jump to tweet]({jump_url})"
+            ),
             color=0x57F287,
         )
-        await interaction.followup.send(embed=success, ephemeral=True)
+
+        await interaction.followup.send(
+            embed=success,
+            ephemeral=True,
+        )
 
         await send_audit_log(
             interaction.guild,
@@ -1223,8 +1695,20 @@ class TweetModal(Modal):
             target=interaction.user,
             channel=post_channel,
             extra_fields=[
-                ("Theme", "Dark Tweet" if self.theme == "dark" else "White Tweet", True),
-                ("Content", tweet_text[:1024], False),
+                (
+                    "Theme",
+                    (
+                        "Dark Tweet"
+                        if self.theme == "dark"
+                        else "Light Tweet"
+                    ),
+                    True,
+                ),
+                (
+                    "Content",
+                    tweet_text[:1024],
+                    False,
+                ),
             ],
         )
 
@@ -1239,17 +1723,30 @@ class TweetPanelView(View):
         style=ButtonStyle.secondary,
         custom_id="tweet_dark",
     )
-    async def dark_tweet(self, interaction: Interaction, button: Button):
-        await interaction.response.send_modal(TweetModal("dark"))
+    async def dark_tweet(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await interaction.response.send_modal(
+            TweetModal("dark")
+        )
 
     @discord.ui.button(
-        label="White Tweet",
+        label="Light Tweet",
         emoji="🤍",
         style=ButtonStyle.secondary,
-        custom_id="tweet_white",
+        custom_id="tweet_light",
     )
-    async def light_tweet(self, interaction: Interaction, button: Button):
-        await interaction.response.send_modal(TweetModal("light"))
+    async def light_tweet(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await interaction.response.send_modal(
+            TweetModal("light")
+        )
+
 
 
 def get_tweet_panel_embed():
@@ -1259,7 +1756,7 @@ def get_tweet_panel_embed():
             "## ▷ Share your thoughts with the community!\n\n"
             "**Choose a style below and write your tweet.**\n\n"
             "🖤 **Dark Tweet** — dark embed with bright text.\n"
-            "🤍 **White Tweet** — light embed with dark text.\n\n"
+            "🤍 **Light Tweet** — clean white design with dark text.\n\n"
             "Each tweet includes your Discord avatar, username, timestamp, "
             "and community engagement counters."
         ),
