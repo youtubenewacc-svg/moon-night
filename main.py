@@ -6,9 +6,6 @@ import json
 import asyncio
 import shutil
 import ctypes.util
-import io
-import textwrap
-import urllib.request
 from datetime import timedelta, datetime, timezone
 import discord
 import yt_dlp
@@ -25,13 +22,6 @@ from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
 
-try:
-    from PIL import Image, ImageDraw, ImageFont, ImageOps
-    PIL_OK = True
-except Exception as exc:
-    PIL_OK = False
-    print(f"[TWEET IMAGE] Pillow unavailable: {exc!r}")
-    print("[TWEET IMAGE] Install Pillow with: pip install Pillow")
 
 # Voice dependency diagnostics
 try:
@@ -157,7 +147,6 @@ CHANNEL_IDS = {
     "general": 1482902490549850184,     # 💬 General
     "commands": 1482902491711541328,    # 🤖 Bot commands
     "temp_voice": 1482902422065123338,  # 🔊 Temporary VC
-    "ticket": 1482902524376780932,      # 🎫 Ticket/help
 
     # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
     "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1544405375632015552")),          # 🐦 Published tweet messages (NOT threads)
@@ -219,25 +208,30 @@ EMOJIS = {
     "girls": "<a:girlsheaven:1400671165885710386>",
     "remove": "<a:removeheaven:1400671588935798815>",
     "click": "<a:clickheaven:1400671930834747432>",
-    "ticket": "🎫",
 }
 
-# 🖼️ IMAGES / LOGOS / BANNERS
-# Socials keeps its small thumbnail. Other main panels use panel_banner as a BIG image.
+# 🖼️ COMMUNITY IMAGES
+# Replace these URLs with your own Discord CDN image links whenever you want.
+# No Imgur dependency is used by the bot.
+COMMUNITY_IMAGE_URL = os.getenv(
+    "COMMUNITY_IMAGE_URL",
+    "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png"
+)
+TWEET_PANEL_IMAGE_URL = os.getenv("TWEET_PANEL_IMAGE_URL", COMMUNITY_IMAGE_URL)
+
 IMAGES = {
-    "moon_logo": "https://i.imgur.com/vHqB5o2.png",
-    "panel_banner": "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png?ex=6a998fb8&is=6a983e38&hm=f2ae9b2b880882e0aca775e5321f1f5b0048aa287a85585a7699e4156e46a5ed&",
-    "role_request": "https://i.imgur.com/moon_night_banner.png",
+    "moon_logo": COMMUNITY_IMAGE_URL,
+    "panel_banner": COMMUNITY_IMAGE_URL,
+    "role_request": "",  # Leave empty to disable the role-request banner.
 }
 
-# 🔗 LINKS — change these when your socials/ticket links change
+# 🔗 LINKS — change these when your socials/community links change
 LINKS = {
     "instagram": "https://instagram.com",
     "tiktok": "https://tiktok.com",
     "ig_group": "https://instagram.com",
     "store": "https://store.moonnight.com",
     "need_help": "https://discord.com",
-    "ticket": f"https://discord.com/channels/{CHANNEL_IDS['ticket']}",
     "discord_terms": "https://discord.com/terms",
     "discord_guidelines": "https://discord.com/guidelines",
 }
@@ -495,7 +489,7 @@ def is_owner_or_admin():
     async def predicate(interaction: Interaction):
         if interaction.user.id == OWNER_ID or interaction.user.guild_permissions.administrator:
             return True
-        await interaction.response.send_message("❌ Had l-command khas b Owners/Admins ghir!", ephemeral=True)
+        await interaction.response.send_message("❌ This command is restricted to the server Owner/Admins.", ephemeral=True)
         return False
     return app_commands.check(predicate)
 
@@ -524,7 +518,7 @@ def get_socials_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url=IMAGES["moon_logo"])
+    embed.set_thumbnail(url=COMMUNITY_IMAGE_URL)
     return embed
 
 
@@ -566,25 +560,24 @@ def get_stats_embed(guild: discord.Guild):
 class RulesView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(Button(label="• Join Need Help!", style=ButtonStyle.link, url=LINKS["need_help"]))
-        self.add_item(Button(label="• Open A Ticket!", style=ButtonStyle.link, url=LINKS["ticket"]))
+        self.add_item(Button(label="• Need Help", style=ButtonStyle.link, url=LINKS["need_help"]))
 
 def get_rules_embed():
     embed = discord.Embed(
         description=(
-            "> 𝗧𝗼 𝗺𝗮𝗸𝗲 𝗦𝘂𝗿𝗲 𝗲𝘃𝗲𝗿𝘆𝗼𝗻𝗲 𝗲𝗻𝗷𝗼𝘆, 𝗽𝗹𝗲𝗮𝘀𝗲 𝗳𝗼𝗹𝗹𝗼𝘄 𝘁𝗵𝗼𝘀𝗲 𝗴𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀 :\n\n"
-            f"{EMOJIS['rules_star']} **⇝ Follow the [Discord TOS](https://discord.com/terms) and The [Discord Community Guidlines](https://discord.com/guidelines)**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Aya NSFW content f server = jail__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Respect aya member f server, kifma kan!__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Abusing any power treportat biha b preuve = warn ⇝ remove role__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Need help daret bach it7alo lmachakil, machi bach trolli, troll f nh = blacklist n.h.__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Sbek chi wahd 3ndo role (staff, high role, admin...) matseboch, tla3 need help reporti bih, ghadi itremova lih role__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Staff provoque 3liha punishment. pd: 3essas 9damet, jib chi haja jdida__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Bghiti trolli, tseb, tla9 sb's, dir one tap dialek, ou lockiha (.v lock) ou hara mat3ich, room opened = respect the rules!__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Abusa 3lik chi wahed 3ndo role (staff, high role, admin...) tla3 n.h. wla 7el ticket hna : {channel_mention('ticket')} ou ghadi itremova lih role__**\n"
-            f"{EMOJIS['rules_star']} **⇝ __Pub ou pub vc 3liha jail, chi wahd spammak, wla dar pub vc, tla3 need help ou report it (don't forget screen / record)__**\n\n"
-            "**⇾ __Have questions or issues? Our team is ready to help you!__**\n"
-            "**⇾ __Questions, problems, or requests? Open a ticket now!__**\n\n"
+            "> 𝗧𝗼 𝗺𝗮𝗸𝗲 𝗦𝘂𝗿𝗲 𝗲𝘃𝗲𝗿𝘆𝗼𝗻𝗲 𝗲𝗻𝗷𝗼𝘆 𝗠𝗼𝗼𝗻 𝗡𝗶𝗴𝗵𝘁, 𝗽𝗹𝗲𝗮𝘀𝗲 𝗳𝗼𝗹𝗹𝗼𝘄 𝘁𝗵𝗲𝘀𝗲 𝗴𝘂𝗶𝗱𝗲𝗹𝗶𝗻𝗲𝘀:\n\n"
+            f"{EMOJIS['rules_star']} **⇝ Follow the [Discord Terms of Service](https://discord.com/terms) and [Community Guidelines](https://discord.com/guidelines).**\n"
+            f"{EMOJIS['rules_star']} **⇝ No NSFW content. Violations may result in a Jail action.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Respect every member, regardless of their role or status.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Abuse of staff powers with valid proof may result in a warning or role removal.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Use Need Help for real issues, reports, or assistance. Do not use it for trolling.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Do not insult staff, moderators, or high-role members. Report problems instead.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Staff members who provoke or abuse their authority may also be punished.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Trolling, harassment, spam, and disruptive behavior are not allowed. Keep every room respectful.**\n"
+            f"{EMOJIS['rules_star']} **⇝ If a staff member abuses you, report the situation with proof through Need Help.**\n"
+            f"{EMOJIS['rules_star']} **⇝ Advertising and unwanted promotion are not allowed. Report spam with a screenshot or recording when possible.**\n\n"
+            "**⇾ __Need help? Our team is here to support you.__**\n"
+            "**⇾ __Have a problem or report? Use the Need Help button below.__**\n\n"
             "-# `© 2026 Moon Night™. All rights reserved.`"
         ),
         color=EMBED_COLOR
@@ -968,194 +961,26 @@ def get_role_request_embed():
         ),
         color=EMBED_COLOR
     )
-    embed.set_image(url=IMAGES["role_request"])
+    if IMAGES.get("role_request"):
+        embed.set_image(url=IMAGES["role_request"])
     return embed
 
 
 
 # ==========================================
-# 9. 🐦 MOON NIGHT TWEETS / THREAD SYSTEM
+# 9. 🐦 MOON NIGHT TWEETS
 # ==========================================
-# Dark Tweet = black card + white text.
-# Light Tweet = white card + dark text.
-# Published tweets are sent as normal messages in CHANNEL_IDS["tweets"]. No tweet threads are created.
-
-TWEET_WIDTH = 1200
-TWEET_HEIGHT = 675
-
-def _font(size, bold=False):
-    if not PIL_OK:
-        return None
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-    ]
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size)
-        except Exception:
-            continue
-    try:
-        return ImageFont.load_default()
-    except Exception:
-        return None
-
-def _download_image_bytes(url, timeout=8):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 MoonNightBot/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        return response.read()
-
-async def _load_remote_image(url):
-    if not url or not PIL_OK:
-        return None
-    try:
-        raw = await asyncio.to_thread(_download_image_bytes, str(url))
-        return Image.open(io.BytesIO(raw)).convert("RGBA")
-    except Exception as exc:
-        print(f"[TWEET IMAGE] Could not load image: {exc!r}")
-        return None
-
-def _rounded_avatar(base, avatar, box):
-    if avatar is None:
-        return
-    size = box[2] - box[0]
-    avatar = ImageOps.fit(avatar, (size, size), method=Image.Resampling.LANCZOS)
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
-    base.paste(avatar, (box[0], box[1]), mask)
-
-async def create_tweet_image(member: discord.Member, text: str, theme: str):
-    """Create the COMPLETE published tweet as one polished image.
-
-    The Discord post intentionally contains NO embed card. Discord only receives
-    the user's mention + this PNG, so the tweet itself looks like a designed
-    social-media post instead of a plain Discord embed.
-    """
-    if not PIL_OK:
-        return None
-
-    dark = theme == "dark"
-    W, H = 1400, 900
-    image = Image.new("RGBA", (W, H), (8, 9, 13, 255))
-    draw = ImageDraw.Draw(image, "RGBA")
-
-    # Premium background gradient.
-    top = (7, 9, 18) if dark else (246, 248, 252)
-    bottom = (27, 16, 40) if dark else (221, 228, 240)
-    for y in range(H):
-        t = y / (H - 1)
-        c = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        draw.line((0, y, W, y), fill=(*c, 255))
-
-    # Ambient glows / stars.
-    glow = (128, 103, 255) if dark else (71, 126, 235)
-    for cx, cy, r, a in [(1180, 120, 310, 22), (220, 760, 260, 18), (700, 420, 420, 9)]:
-        draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=(*glow, a))
-    for x, y, r in [(75,90,3),(155,210,2),(260,120,3),(380,70,2),(520,180,3),
-                    (720,105,2),(865,190,3),(1010,70,2),(1240,250,3),(1320,120,2),
-                    (1140,610,2),(90,690,2),(260,790,3)]:
-        draw.ellipse((x-r,y-r,x+r,y+r), fill=(255,255,255,150))
-
-    # Decorative moon on the right.
-    moon_x, moon_y, moon_r = 1180, 120, 82
-    draw.ellipse((moon_x-moon_r, moon_y-moon_r, moon_x+moon_r, moon_y+moon_r),
-                 fill=(247,244,229,245))
-    draw.ellipse((moon_x-52, moon_y-94, moon_x+112, moon_y+70), fill=(*top,255))
-
-    # Header / branding.
-    logo = await _load_remote_image(IMAGES.get("moon_logo"))
-    if logo is not None:
-        logo.thumbnail((78, 78), Image.Resampling.LANCZOS)
-        image.alpha_composite(logo, (70, 58))
-
-    title_font = _font(38, True)
-    small_font = _font(20, False)
-    name_font = _font(31, True)
-    user_font = _font(21, False)
-    body_font = _font(43, False)
-    time_font = _font(21, False)
-    footer_font = _font(19, True)
-
-    primary = (250,250,253,255) if dark else (25,27,34,255)
-    secondary = (174,177,190,255) if dark else (91,97,110,255)
-    panel = (12,13,19,238) if dark else (255,255,255,242)
-    border = (86,82,103,170) if dark else (202,208,220,220)
-
-    draw.text((170, 61), "Moon Night", font=title_font, fill=primary)
-    draw.text((172, 108), "COMMUNITY TWEET", font=small_font, fill=secondary)
-
-    # Main social card.
-    card = (55, 245, W-55, H-65)
-    draw.rounded_rectangle(card, radius=42, fill=panel, outline=border, width=2)
-
-    # Theme pill.
-    pill_text = "DARK TWEET" if dark else "LIGHT TWEET"
-    pill_w = 190
-    draw.rounded_rectangle((W-55-pill_w-28, 274, W-83, 320), radius=23,
-                           fill=(*glow, 55), outline=(*glow, 150), width=1)
-    draw.text((W-55-pill_w-10, 285), pill_text, font=footer_font, fill=primary)
-
-    # Avatar.
-    avatar = await _load_remote_image(member.display_avatar.url)
-    _rounded_avatar(image, avatar, (95, 295, 177, 377))
-    draw.ellipse((91, 291, 181, 381), outline=(*glow, 230), width=4)
-
-    name = str(member.display_name)[:28]
-    username = f"@{member.name}"[:32]
-    draw.text((205, 294), name, font=name_font, fill=primary)
-    draw.text((207, 338), username, font=user_font, fill=secondary)
-
-    # Verified-style Moon Night badge.
-    try:
-        nb = draw.textbbox((205,294), name, font=name_font)
-        bx = min(nb[2] + 13, W - 300)
-        by = 302
-        draw.ellipse((bx,by,bx+24,by+24), fill=(*glow,255))
-        draw.line((bx+5,by+12,bx+10,by+17), fill=(255,255,255,255), width=3)
-        draw.line((bx+10,by+17,bx+19,by+7), fill=(255,255,255,255), width=3)
-    except Exception:
-        pass
-
-    # Tweet text — large and central, wrapped dynamically.
-    body = " ".join(text.strip().split())[:900]
-    wrapped = textwrap.wrap(body, width=48, break_long_words=False, break_on_hyphens=False) or [""]
-    # Keep enough space for footer; shrink font if the tweet is long.
-    current_font = body_font
-    if len(wrapped) > 6:
-        current_font = _font(34, False)
-        wrapped = textwrap.wrap(body, width=62, break_long_words=False, break_on_hyphens=False)
-    if len(wrapped) > 9:
-        current_font = _font(29, False)
-        wrapped = textwrap.wrap(body, width=72, break_long_words=False, break_on_hyphens=False)
-
-    body_y = 430
-    line_gap = 56 if current_font == body_font else 47
-    for line in wrapped[:10]:
-        draw.text((100, body_y), line, font=current_font, fill=primary)
-        body_y += line_gap
-
-    # Bottom metadata / timestamp.
-    now_local = datetime.now().astimezone()
-    time_text = now_local.strftime("%H:%M")
-    date_text = now_local.strftime("%d %B %Y")
-    draw.line((100, H-142, W-100, H-142), fill=(90,90,102,125) if dark else (210,214,222,255), width=2)
-    draw.text((100, H-112), f"🕐 {time_text}  •  {date_text}", font=time_font, fill=secondary)
-    draw.text((W-430, H-112), "🐦 Moon Night Tweets", font=time_font, fill=secondary)
-
-    # Tiny social footer, keeping the visual self-contained.
-    draw.text((100, H-82), "Share your thoughts • Moon Night Community", font=small_font, fill=secondary)
-    draw.text((W-285, H-82), "0 Replies  •  0 Likes", font=small_font, fill=secondary)
-
-    output = io.BytesIO()
-    image.convert("RGB").save(output, format="PNG", optimize=True)
-    output.seek(0)
-    return output
+# Tweets are native Discord embeds:
+# - No external Imgur image is required.
+# - The member avatar is a small thumbnail.
+# - The tweet text is large and clean inside the embed.
+# - Dark/Light changes the embed theme.
+# - The real Discord member is mentioned in the message.
 
 class TweetModal(Modal):
     def __init__(self, theme: str):
         self.theme = theme
-        title = "Dark Tweet" if theme == "dark" else "Light Tweet"
-        super().__init__(title=title)
+        super().__init__(title="Dark Tweet" if theme == "dark" else "Light Tweet")
         self.thought = TextInput(
             label="Your thought",
             placeholder="Write your tweet...",
@@ -1169,8 +994,6 @@ class TweetModal(Modal):
     async def on_submit(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        # The panel can be in any channel. The finished tweet is ALWAYS
-        # published as a normal message in the configured Tweets channel.
         post_channel_id = CHANNEL_IDS.get("tweets", 0)
         post_channel = (
             interaction.guild.get_channel(post_channel_id)
@@ -1180,88 +1003,112 @@ class TweetModal(Modal):
 
         if not isinstance(post_channel, discord.TextChannel):
             return await interaction.followup.send(
-                "❌ Tweet publish channel is not configured. Put the channel ID in `CHANNEL_IDS['tweets']` or set `TWEETS_CHANNEL_ID`.",
+                "❌ Tweet channel is not configured. Set `CHANNEL_IDS['tweets']` at the top of `main.py`.",
                 ephemeral=True,
             )
 
-        try:
-            image_bytes = await create_tweet_image(
-                interaction.user,
-                self.thought.value,
-                self.theme,
-            )
+        is_dark = self.theme == "dark"
+        embed_color = 0x0B0D12 if is_dark else 0xF2F4F7
+        main_text = 0xFFFFFF if is_dark else 0x15171A
+        secondary_text = 0xA9AFBA if is_dark else 0x5B626C
 
-            # IMPORTANT: the published tweet is a SINGLE IMAGE, not a Discord embed.
-            # This removes the simple-looking Discord card from the final tweet.
-            if image_bytes is None:
-                return await interaction.followup.send(
-                    "❌ Tweet image could not be generated. Pillow is missing on the server. Add `Pillow>=10.0.0` to `requirements.txt`, then redeploy Railway.",
-                    ephemeral=True,
-                )
+        tweet_text = " ".join(self.thought.value.strip().split())
+        now = datetime.now(timezone.utc)
 
-            file = discord.File(image_bytes, filename="moon_night_tweet.png")
-            published_message = await post_channel.send(
-                content=interaction.user.mention,
-                file=file,
-                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
-            )
+        embed = discord.Embed(
+            title=f"🐦  {interaction.user.display_name}",
+            description=f"## {tweet_text}",
+            color=embed_color,
+            timestamp=now,
+        )
+        embed.set_author(
+            name=f"@{interaction.user.name}",
+            icon_url=interaction.user.display_avatar.url,
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.add_field(name="💬 Replies", value="`0`", inline=True)
+        embed.add_field(name="❤️ Likes", value="`0`", inline=True)
+        embed.add_field(name="👁️ Views", value="`0`", inline=True)
+        embed.add_field(
+            name="🌙 Moon Night Community",
+            value=f"**{now.strftime('%H:%M')}** • **{now.strftime('%d %B %Y')}**",
+            inline=False,
+        )
+        embed.set_footer(
+            text="Moon Night Community • Share your thoughts"
+        )
 
-            success = discord.Embed(
-                title="✅ Tweet Posted Successfully!",
-                description=(
-                    f"Your tweet has been posted in {post_channel.mention}.\n"
-                    f"[Jump to tweet](https://discord.com/channels/{interaction.guild.id}/{post_channel.id}/{published_message.id})"
-                ),
-                color=0x57F287,
-            )
-            await interaction.followup.send(embed=success, ephemeral=True)
+        published_message = await post_channel.send(
+            content=interaction.user.mention,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+        )
 
-            # Tweet publication goes to GENERAL logs only.
-            await send_audit_log(
-                interaction.guild,
-                title="Tweet Posted",
-                emoji="🐦",
-                actor=interaction.user,
-                target=published_message,
-                channel=post_channel,
-                extra_fields=[
-                    ("🎨 Theme", f"`{self.theme.title()}`", True),
-                    ("📍 Published In", post_channel.mention, True),
-                    ("📝 Content", f"```{self.thought.value[:900]}```", False),
-                ],
-            )
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            await interaction.followup.send(
-                f"❌ I couldn't publish the tweet: `{type(exc).__name__}`.",
-                ephemeral=True,
-            )
+        jump_url = (
+            f"https://discord.com/channels/{interaction.guild.id}/"
+            f"{post_channel.id}/{published_message.id}"
+        )
+        success = discord.Embed(
+            title="✅ Tweet Posted",
+            description=f"Your tweet is live in {post_channel.mention}.\n[Jump to tweet]({jump_url})",
+            color=0x57F287,
+        )
+        await interaction.followup.send(embed=success, ephemeral=True)
+
+        await send_audit_log(
+            interaction.guild,
+            title="🐦 Tweet Published",
+            actor=interaction.user,
+            target=interaction.user,
+            channel=post_channel,
+            extra_fields=[
+                ("Theme", "Dark" if is_dark else "Light", True),
+                ("Content", tweet_text[:1024], False),
+            ],
+        )
+
 
 class TweetPanelView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Dark Tweet", emoji="🖤", style=ButtonStyle.secondary, custom_id="tweet_dark")
+    @discord.ui.button(
+        label="Dark Tweet",
+        emoji="🖤",
+        style=ButtonStyle.secondary,
+        custom_id="tweet_dark",
+    )
     async def dark_tweet(self, interaction: Interaction, button: Button):
         await interaction.response.send_modal(TweetModal("dark"))
 
-    @discord.ui.button(label="Light Tweet", emoji="🤍", style=ButtonStyle.secondary, custom_id="tweet_light")
+    @discord.ui.button(
+        label="Light Tweet",
+        emoji="🤍",
+        style=ButtonStyle.secondary,
+        custom_id="tweet_light",
+    )
     async def light_tweet(self, interaction: Interaction, button: Button):
         await interaction.response.send_modal(TweetModal("light"))
 
+
 def get_tweet_panel_embed():
     embed = discord.Embed(
-        title="🐦  Moon Night's Tweets System  ›",
+        title="🐦  Moon Night Community Tweets  ›",
         description=(
-            "## ▷  Share your thoughts with the community!\n\n"
-            "**│ Click the button below to write a new tweet!**\n\n"
-            "Your finished tweet is rendered as a **full custom image** with your avatar, name, text and exact time.\n\n"
-            "Choose **Dark Tweet** for a dark Moon Night design, or **Light Tweet** for a clean light design.\n\n"
-            "-# `© 2026 Moon Night™. All rights reserved.`"
+            "## ▷ Share your thoughts with the community!\n\n"
+            "**Choose a style below and write your tweet.**\n\n"
+            "🖤 **Dark Tweet** — dark embed with bright text.\n"
+            "🤍 **Light Tweet** — light embed with dark text.\n\n"
+            "Each tweet includes your Discord avatar, username, timestamp, "
+            "and community engagement counters."
         ),
         color=EMBED_COLOR,
     )
-    embed.set_image(url=IMAGES["panel_banner"])
+    if TWEET_PANEL_IMAGE_URL:
+        embed.set_thumbnail(url=TWEET_PANEL_IMAGE_URL)
+    embed.set_footer(text="Moon Night Community • Tweets • Choose a style below")
     return embed
+
 
 @bot.tree.command(name="threads", description="Create a public thread in a configured Moon Night channel (not Tweets)")
 @app_commands.describe(destination="Where the thread should be created", name="Thread name")
@@ -2791,24 +2638,26 @@ HELP_CATEGORIES = {
         ("/antinuke", "Protect a member from bot moderation.")
     ],
     "🎮 Games": [
-        ("/games", "Open one Games Center panel containing all Moon Night games."),
-        ("/coinflip", "Heads or Tails: a fast 50/50 coin toss, no bet needed."),
-        ("/dice", "Roll a 1–6 die and see your random result."),
-        ("/rps", "Rock, Paper, Scissors against Moon Night."),
-        ("/8ball", "Ask a question and get a random Magic 8-Ball answer."),
-        ("/roulette", "Bet Moon Coins on virtual roulette and try your luck."),
-        ("/slots", "Spin 3 symbols; matching symbols can multiply your bet."),
-        ("/blackjack", "Play a blackjack hand against the dealer using Moon Coins."),
-        ("High / Low", "🎴 A random card from 1–13 appears. Bet and try your luck on the high/low result."),
-        ("Even / Odd", "🎯 A random number from 1–36 appears and you play the even/odd result for your bet."),
-        ("Wheel", "🎡 Spin the reward wheel. Different multipliers decide how many Moon Coins you receive."),
-        ("Double or Nothing", "⚡ Risk your bet: win and double it, or lose the stake."),
-        ("Treasure", "🗝️ Open a mystery chest. The reward can be 0x, 0.5x, 1x, 2x or 5x your bet."),
-        ("Number Guess", "🔢 Guess the secret number between 1 and 10. Use `/numberguess`."),
-        ("Quick Draw", "🤠 A fast reaction game. Try to beat Moon Night in the draw."),
-        ("Lucky Color", "🌈 Get a random lucky color for a quick community/fun result."),
-        ("/mafia", "Create, join, leave, start or view a Mafia game."),
-        ("Bet format", "Bet games support amounts such as `1k`, `1.5k`, `2m` and `2b`.")
+        ("/games", "Open the Games Center with one menu for all Moon Night games."),
+        ("/coinflip", "Flip heads or tails for a quick result."),
+        ("/dice", "Roll a die with 2–100 sides."),
+        ("/rps", "Play Rock Paper Scissors against Moon Night."),
+        ("/8ball", "Ask a question and receive a random Magic 8-Ball answer."),
+        ("/roulette", "Bet Moon Coins on red, black, or green."),
+        ("/roulette_game", "Create a multiplayer Roulette Arena where players join the same pot."),
+        ("/roulette_status", "Check the current Roulette Arena lobby."),
+        ("/slots", "Spin three symbols and win based on the combination."),
+        ("/blackjack", "Play a simplified blackjack round against the dealer."),
+        ("/numberguess", "Guess the secret number from 1 to 10."),
+        ("/quickdraw", "Play a fast reflex-style mini game."),
+        ("Games Center: High / Low", "Bet on a high or low card result."),
+        ("Games Center: Even / Odd", "Bet on an even or odd number result."),
+        ("Games Center: Wheel", "Spin a multiplier wheel for a possible payout."),
+        ("Games Center: Double or Nothing", "Risk a bet for a chance to double it."),
+        ("Games Center: Treasure", "Open a virtual treasure chest for a random payout."),
+        ("Games Center: Lucky Color", "Receive a random lucky color."),
+        ("Games Center: Mafia", "Use the Mafia command to create and play a social deduction game."),
+        ("Bet format", "Bet commands accept values such as 1k, 2.5k, 1m, and 2b."),
     ],
     "💰 Economy": [
         ("/balance", "Check your virtual Moon Coins."),
@@ -2822,15 +2671,17 @@ HELP_CATEGORIES = {
         ("/rank", "Show XP and level."),
         ("/leaderboardxp", "XP leaderboard.")
     ],
-    "🎫 Community": [
-        ("/ticket", "Create a private support ticket."),
-        ("/poll", "Create a reaction poll."),
-        ("/suggest", "Submit a server suggestion."),
-        ("/announce", "Post a formatted announcement."),
-        ("/userinfo", "Show member information."),
-        ("/avatar", "Show a member avatar."),
-        ("/roleinfo", "Show role information."),
-        ("/serverinfo", "Show server information.")
+    "🌐 Community": [
+        ("/poll", "Create a two-option community poll with reaction voting."),
+        ("/suggest", "Submit a suggestion with 👍/👎 voting."),
+        ("/announce", "Create a formatted announcement as Owner/Admin."),
+        ("/broadcast", "Send a formatted community broadcast to any text channel as Owner/Admin."),
+        ("/userinfo", "Show a member's account, join date, roles, and avatar."),
+        ("/avatar", "Show a member's avatar."),
+        ("/roleinfo", "Show role information and member count."),
+        ("/serverinfo", "Show detailed server information."),
+        ("/about", "Show Moon Night server statistics and activity."),
+        ("/send_panel", "Send the configured Moon Night community panels."),
     ],
     "🎁 Events": [
         ("/giveaway", "Start a timed giveaway."),
@@ -2855,20 +2706,25 @@ HELP_CATEGORIES = {
         ("/filter", "Set audio filter: off, nightcore or bassboost.")
     ],
     "🔊 Temporary Voice": [
-        ("/vccenter", "Open controls for your temporary voice room."),
-        ("Lock", "Stop new members from joining your temporary room."),
-        ("Unlock", "Allow members to join the room again."),
-        ("Limit", "Set the maximum number of members allowed in the room."),
-        ("Rename", "Change your temporary room name."),
-        ("Kick", "Remove a member from your temporary room."),
-        ("Move", "Move a member between voice channels when permitted."),
-        ("Close Room", "Delete your temporary room manually."),
-        ("Auto Delete", "The temporary room is automatically removed when empty.")
+        ("/vccenter", "Open the control panel for your current temporary VC."),
+        ("Lock / Unlock", "Prevent new members from joining or reopen the room."),
+        ("Limit", "Set the room user limit from 0 to 99."),
+        ("Rename", "Change the temporary room name."),
+        ("Kick", "Remove a member from your temporary VC."),
+        ("Move", "Move a member between your temporary VC and another voice channel."),
+        ("Close Room", "Delete your temporary VC immediately."),
+        ("Auto Cleanup", "The temporary VC is deleted automatically when empty."),
+        ("Permissions", "The room owner, server Owner, or Administrator can control the room."),
     ],
     "🌙 Server": [
-        ("/about", "Show server statistics."),
-        ("/invite", "Get the bot invite link."),
-        ("/send_panel", "Send Moon Night panels.")
+        ("/about", "Show detailed Moon Night server statistics."),
+        ("/serverinfo", "Show server information, channels, roles, and activity."),
+        ("/invite", "Get the Moon Night bot invite link."),
+        ("/send_panel", "Send a configured Moon Night community panel."),
+        ("/help", "Open the interactive Moon Night Help Center."),
+        ("/games", "Open the Games Center."),
+        ("/vccenter", "Open controls for your current temporary voice room."),
+        ("/broadcast", "Owner/Admin: send a formatted broadcast to a selected channel."),
     ]
 }
 
@@ -2919,7 +2775,7 @@ async def help_command(interaction: Interaction):
         ),
         color=EMBED_COLOR
     )
-    embed.set_thumbnail(url=IMAGES["moon_logo"])
+    embed.set_thumbnail(url=COMMUNITY_IMAGE_URL)
     embed.set_footer(text="Moon Night • Help Center")
     await interaction.response.send_message(embed=embed, view=HelpView(), ephemeral=True)
 
@@ -3064,9 +2920,75 @@ async def suggest(interaction: Interaction, text: str):
 @app_commands.describe(title="Title", message="Message")
 @is_owner_or_admin()
 async def announce(interaction: Interaction, title: str, message: str):
-    embed = discord.Embed(title=f"📢 {title}", description=message, color=EMBED_COLOR)
-    embed.set_footer(text=f"Moon Night • {interaction.user}")
+    embed = discord.Embed(
+        title=f"📢 {title}",
+        description=message,
+        color=EMBED_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text=f"Moon Night Community • {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="broadcast", description="Send a community broadcast")
+@app_commands.describe(
+    title="Broadcast title",
+    message="Broadcast message",
+    channel="Destination channel (defaults to the current channel)",
+    ping_everyone="Mention @everyone in the broadcast"
+)
+@is_owner_or_admin()
+async def broadcast(
+    interaction: Interaction,
+    title: str,
+    message: str,
+    channel: discord.TextChannel = None,
+    ping_everyone: bool = False,
+):
+    destination = channel or interaction.channel
+    if not isinstance(destination, discord.TextChannel):
+        return await interaction.response.send_message(
+            "❌ The destination must be a text channel.",
+            ephemeral=True,
+        )
+
+    embed = discord.Embed(
+        title=f"📢 {title}",
+        description=message,
+        color=EMBED_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_author(
+        name=f"{interaction.guild.name} • Community Broadcast",
+    )
+    embed.set_footer(text=f"Broadcast by {interaction.user.display_name}")
+
+    content = "@everyone" if ping_everyone else None
+    allowed = discord.AllowedMentions(everyone=ping_everyone)
+
+    try:
+        await destination.send(content=content, embed=embed, allowed_mentions=allowed)
+    except discord.Forbidden:
+        return await interaction.response.send_message(
+            "❌ I do not have permission to send messages in that channel.",
+            ephemeral=True,
+        )
+
+    await interaction.response.send_message(
+        f"✅ Broadcast sent to {destination.mention}.",
+        ephemeral=True,
+    )
+
+    await send_audit_log(
+        interaction.guild,
+        title="📢 Community Broadcast",
+        actor=interaction.user,
+        channel=destination,
+        extra_fields=[
+            ("Title", title[:1024], True),
+            ("Message", message[:1024], False),
+            ("Everyone Ping", "Yes" if ping_everyone else "No", True),
+        ],
+    )
 
 @bot.tree.command(name="userinfo", description="Show member information")
 async def userinfo(interaction: Interaction, user: discord.Member = None):
@@ -3112,47 +3034,6 @@ async def serverinfo(interaction: Interaction):
     embed.add_field(name="Peak", value=f"`{SERVER_PEAK_MEMBERS.get(guild.id, guild.member_count)}`", inline=True)
     embed.add_field(name="Created", value=f"<t:{int(guild.created_at.timestamp())}:F>", inline=False)
     await interaction.response.send_message(embed=embed)
-
-
-# ==========================================
-# 13. TICKETS
-# ==========================================
-class TicketCloseView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🔒 Close Ticket", style=ButtonStyle.danger, custom_id="moon_ticket_close")
-    async def close_ticket(self, interaction: Interaction, button: Button):
-        if not interaction.user.guild_permissions.manage_channels:
-            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
-        await interaction.response.send_message("🔒 Closing ticket...", ephemeral=True)
-        await asyncio.sleep(2)
-        await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
-
-@bot.tree.command(name="ticket", description="Create a private support ticket")
-async def ticket(interaction: Interaction):
-    guild = interaction.guild
-    category = discord.utils.get(guild.categories, name=f"{EMOJIS['ticket']} TICKETS")
-    if category is None:
-        category = await guild.create_category(f"{EMOJIS['ticket']} TICKETS")
-
-    name = f"ticket-{interaction.user.id}"
-    if discord.utils.get(guild.text_channels, name=name):
-        return await interaction.response.send_message("❌ You already have a ticket.", ephemeral=True)
-
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
-    }
-    channel = await guild.create_text_channel(name, category=category, overwrites=overwrites)
-    embed = discord.Embed(
-        title="🎫 Moon Night Support",
-        description=f"Welcome {interaction.user.mention}!\nExplain your issue here and staff will help you.",
-        color=EMBED_COLOR
-    )
-    await channel.send(content=interaction.user.mention, embed=embed, view=TicketCloseView())
-    await interaction.response.send_message(f"🎫 Ticket created: {channel.mention}", ephemeral=True)
 
 
 # ==========================================
@@ -3530,14 +3411,19 @@ def get_games_center_embed():
             "Choose a game from the menu below and it will launch instantly.\n\n"
             "💰 **Bet games** accept `1k`, `1m`, `2b` and more.\n"
             "🏆 **Moon Coins** are virtual server coins only.\n\n"
-            "### 🎰 Casino\nRoulette • Slots • Blackjack • Wheel • Double or Nothing\n\n"
-            "### 🕹️ Quick Games\nCoinflip • Dice • RPS • 8-Ball • High/Low • Even/Odd • Treasure • Quick Draw • Lucky Color\n\n"
+            "### 🎰 Casino\nRoulette • Roulette Arena • Slots • Blackjack • Wheel • Double or Nothing\n\n"
+            "### 🕹️ Quick Games\nCoinflip • Dice • RPS • 8-Ball • High/Low • Even/Odd • Treasure • Number Guess • Quick Draw • Lucky Color\n\n"
+            "### 📖 What each game does\n"
+            "🪙 Coinflip = heads/tails • 🎲 Dice = random number • ✊ RPS = play against the bot • 🔮 8-Ball = random answer\n"
+            "🎰 Roulette = color betting • 🎰 Roulette Arena = multiplayer pot • 🃏 Blackjack = beat the dealer • 🎰 Slots = match symbols\n"
+            "🃏 High/Low = high or low result • 🎯 Even/Odd = parity result • 🎡 Wheel = multiplier spin • ⚡ Double or Nothing = risk your bet\n"
+            "🗝️ Treasure = random chest payout • 🔢 Number Guess = guess 1–10 • 🤠 Quick Draw = reflex mini-game • 🌈 Lucky Color = random color\n\n"
             "-# `© 2026 Moon Night™ • Games Center`"
         ),
         color=EMBED_COLOR,
     )
-    embed.set_thumbnail(url=IMAGES["moon_logo"])
-    embed.set_image(url=IMAGES["panel_banner"])
+    if TWEET_PANEL_IMAGE_URL:
+        embed.set_thumbnail(url=TWEET_PANEL_IMAGE_URL)
     return embed
 
 @bot.tree.command(name="games", description="Open the Moon Night Games Center")
@@ -3846,7 +3732,7 @@ def make_temp_vc_embed(channel):
         ),
         color=EMBED_COLOR,
     )
-    embed.set_thumbnail(url=IMAGES["moon_logo"])
+    embed.set_thumbnail(url=COMMUNITY_IMAGE_URL)
     return embed
 
 class VCLimitModal(Modal):
@@ -4038,7 +3924,7 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     app_commands.Choice(name="Socials", value="socials"),
     app_commands.Choice(name="Stats", value="stats"),
     app_commands.Choice(name="Rules", value="rules"),
-    app_commands.Choice(name="Guidmap / Server Map", value="map"),
+    app_commands.Choice(name="Guild Map / Server Map", value="map"),
     app_commands.Choice(name="Apply Staff Team", value="apply"),
     app_commands.Choice(name="Booster Perks Roles", value="boosters"),
     app_commands.Choice(name="Self Roles", value="selfroles"),
