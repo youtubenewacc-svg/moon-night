@@ -993,63 +993,115 @@ def _rounded_avatar(base, avatar, box):
     base.paste(avatar, (box[0], box[1]), mask)
 
 async def create_tweet_image(member: discord.Member, text: str, theme: str):
+    """Create a polished Twitter/X-style image card with a themed background."""
     if not PIL_OK:
         return None
 
     dark = theme == "dark"
-    bg = (10, 10, 11, 255) if dark else (250, 250, 250, 255)
-    card = (20, 20, 22, 255) if dark else (255, 255, 255, 255)
-    primary = (245, 245, 245, 255) if dark else (20, 20, 22, 255)
-    secondary = (155, 155, 160, 255) if dark else (90, 90, 95, 255)
+    W, H = TWEET_WIDTH, TWEET_HEIGHT
+    image = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    px = image.load()
 
-    image = Image.new("RGBA", (TWEET_WIDTH, TWEET_HEIGHT), bg)
-    draw = ImageDraw.Draw(image)
+    # Smooth diagonal gradient background: dark black/purple or clean white/silver.
+    if dark:
+        top = (8, 8, 12)
+        bottom = (30, 24, 44)
+        glow = (93, 72, 150)
+    else:
+        top = (255, 255, 255)
+        bottom = (226, 229, 236)
+        glow = (185, 191, 205)
 
-    # Main tweet card
-    margin = 45
-    draw.rounded_rectangle((margin, margin, TWEET_WIDTH-margin, TWEET_HEIGHT-margin), radius=34, fill=card)
+    for y in range(H):
+        t = y / max(1, H - 1)
+        r = int(top[0] * (1 - t) + bottom[0] * t)
+        g = int(top[1] * (1 - t) + bottom[1] * t)
+        b = int(top[2] * (1 - t) + bottom[2] * t)
+        for x in range(W):
+            px[x, y] = (r, g, b, 255)
+
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    # Decorative soft circles / lines in the background.
+    draw.ellipse((W - 330, -120, W + 80, 290), fill=(*glow, 30 if dark else 22))
+    draw.ellipse((-180, H - 260, 260, H + 180), fill=(*glow, 24 if dark else 18))
+    draw.rounded_rectangle((28, 28, W - 28, H - 28), radius=42,
+                           outline=(*glow, 55 if dark else 45), width=2)
+
+    # Main card with a subtle border.
+    margin = 62
+    card = (13, 14, 17, 238) if dark else (255, 255, 255, 245)
+    border = (70, 70, 78, 210) if dark else (205, 208, 216, 220)
+    draw.rounded_rectangle((margin, margin, W - margin, H - margin), radius=38, fill=card, outline=border, width=2)
 
     avatar = await _load_remote_image(member.display_avatar.url)
-    _rounded_avatar(image, avatar, (85, 85, 185, 185))
+    _rounded_avatar(image, avatar, (105, 105, 205, 205))
+    # Avatar ring.
+    draw.ellipse((101, 101, 209, 209), outline=(*glow, 220), width=4)
 
     bold_46 = _font(46, True)
     regular_34 = _font(34, False)
     regular_28 = _font(28, False)
     bold_26 = _font(26, True)
+    bold_24 = _font(24, True)
 
-    name = str(member.display_name)[:28]
-    username = f"@{member.name}"[:34]
-    draw.text((215, 88), name, font=bold_46, fill=primary)
-    draw.text((215, 145), username, font=regular_28, fill=secondary)
+    name = str(member.display_name)[:26]
+    username = f"@{member.name}"[:32]
+    primary = (248, 248, 250, 255) if dark else (20, 22, 27, 255)
+    secondary = (168, 168, 177, 255) if dark else (92, 96, 106, 255)
+    accent = (132, 112, 190, 255) if dark else (85, 89, 98, 255)
 
-    # Moon Night logo in the top-right
+    draw.text((235, 105), name, font=bold_46, fill=primary)
+    draw.text((235, 162), username, font=regular_28, fill=secondary)
+
+    # Small verified-style badge next to the display name.
+    try:
+        name_box = draw.textbbox((235, 105), name, font=bold_46)
+        bx = min(name_box[2] + 14, W - 260)
+        by = 119
+        draw.ellipse((bx, by, bx + 27, by + 27), fill=accent)
+        draw.line((bx + 7, by + 14, bx + 12, by + 19), fill=(255, 255, 255, 255), width=3)
+        draw.line((bx + 12, by + 19, bx + 21, by + 8), fill=(255, 255, 255, 255), width=3)
+    except Exception:
+        pass
+
+    # Moon Night logo in the top-right.
     logo = await _load_remote_image(IMAGES.get("moon_logo"))
     if logo is not None:
-        logo.thumbnail((92, 92), Image.Resampling.LANCZOS)
-        image.alpha_composite(logo, (TWEET_WIDTH - 145, 75))
+        logo.thumbnail((86, 86), Image.Resampling.LANCZOS)
+        image.alpha_composite(logo, (W - 160, 100))
 
-    # Tweet body with wrapping
-    body = text.strip()[:700]
-    wrapped = textwrap.wrap(body, width=46) or [""]
-    body_y = 235
-    for line in wrapped[:8]:
-        draw.text((85, body_y), line, font=regular_34, fill=primary)
+    # Tweet body: dynamic, wraps cleanly, and changes with the user's text.
+    body = " ".join(text.strip().split())[:700]
+    wrapped = textwrap.wrap(body, width=49, break_long_words=False, break_on_hyphens=False) or [""]
+    body_y = 255
+    for line in wrapped[:7]:
+        draw.text((105, body_y), line, font=regular_34, fill=primary)
         body_y += 50
 
-    # Divider + stats like the screenshot
-    divider_y = 505
-    draw.line((85, divider_y, TWEET_WIDTH-85, divider_y), fill=(70,70,74,255) if dark else (215,215,218,255), width=2)
-    stats = [("77", "Replies"), ("1,260", "Likes"), ("13,208", "Views")]
-    x = 90
+    # Bottom divider and live-looking counters. Start at zero instead of fake stats.
+    divider_y = H - 185
+    divider_color = (65, 65, 72, 230) if dark else (218, 220, 225, 255)
+    draw.line((105, divider_y, W - 105, divider_y), fill=divider_color, width=2)
+
+    stats = [("0", "Replies"), ("0", "Likes"), ("0", "Views")]
+    x = 110
     for number, label in stats:
-        draw.text((x, 535), number, font=bold_26, fill=primary)
-        number_w = draw.textbbox((x,535), number, font=bold_26)[2] - x
-        draw.text((x + number_w + 12, 538), label, font=regular_28, fill=secondary)
-        x += 235
+        draw.text((x, divider_y + 30), number, font=bold_26, fill=primary)
+        number_w = draw.textbbox((x, divider_y + 30), number, font=bold_26)[2] - x
+        draw.text((x + number_w + 12, divider_y + 33), label, font=regular_28, fill=secondary)
+        x += 250
 
     brand = "Moon Night Tweets"
-    bbox = draw.textbbox((0,0), brand, font=regular_28)
-    draw.text((TWEET_WIDTH-95-(bbox[2]-bbox[0]), 585), f"⌁ {brand} ⌁", font=regular_28, fill=secondary)
+    bbox = draw.textbbox((0, 0), brand, font=bold_24)
+    draw.text((W - 105 - (bbox[2] - bbox[0]), H - 92), f"⌁ {brand} ⌁", font=bold_24, fill=secondary)
+
+    # Theme label, so the chosen Dark/Light mode is visibly part of the design.
+    mode = "DARK MODE" if dark else "LIGHT MODE"
+    draw.rounded_rectangle((W - 285, H - 104, W - 115, H - 64), radius=18,
+                           fill=(*accent[:3], 55), outline=(*accent[:3], 130), width=1)
+    mode_box = draw.textbbox((0, 0), mode, font=bold_24)
+    draw.text((W - 200 - (mode_box[2] - mode_box[0]) / 2, H - 98), mode, font=bold_24, fill=primary)
 
     output = io.BytesIO()
     image.convert("RGB").save(output, format="PNG", optimize=True)
@@ -1096,8 +1148,10 @@ class TweetModal(Modal):
                 self.theme,
             )
 
+            # Put the real Discord mention in message content so the user is actually pinged.
+            # The embed itself keeps the visual title clean.
             embed = discord.Embed(
-                title=f"📝 New Tweet By : {interaction.user.mention}",
+                title=f"🐦 New Tweet • {interaction.user.display_name}",
                 color=EMBED_COLOR,
                 timestamp=datetime.now(timezone.utc),
             )
@@ -1106,10 +1160,19 @@ class TweetModal(Modal):
             if image_bytes is not None:
                 file = discord.File(image_bytes, filename="moon_night_tweet.png")
                 embed.set_image(url="attachment://moon_night_tweet.png")
-                published_message = await post_channel.send(embed=embed, file=file)
+                published_message = await post_channel.send(
+                    content=interaction.user.mention,
+                    embed=embed,
+                    file=file,
+                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                )
             else:
                 embed.description = f"> {self.thought.value[:1900]}"
-                published_message = await post_channel.send(embed=embed)
+                published_message = await post_channel.send(
+                    content=interaction.user.mention,
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                )
 
             success = discord.Embed(
                 title="✅ Tweet Posted Successfully!",
