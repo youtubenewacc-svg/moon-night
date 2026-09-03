@@ -3968,8 +3968,8 @@ def get_voice_panel_embed():
             "Manage your room, adjust visibility, and control "
             "voice features from one clean panel.\n"
             "```\n"
-            "✧ **__Check our rules here.__**\n"
-            "✧ **__For voice assistance, join a support voice channel.__**\n"
+            "✧ [**__Check our rules here.__**](https://discord.com/channels/1237973983882907739/1544405529613566044)\n"
+            "✧ [**__For voice assistance, join a support voice channel.__**](https://discord.com/channels/1237973983882907739/1544406090089893949)\n"
             "-# © 2025 **Dark Night 🌙**, Inc. All rights reserved. "
             "Powered by @Omar ⛥."
         ),
@@ -4497,37 +4497,12 @@ class TempVCControlView(View):
 
 class VoicePanelView(View):
     """
-    Clean emoji-only control row + emoji-only link buttons.
-
-    The actual panel lives in a normal text channel.
-    Every control automatically operates on the user's own
-    temporary VC.
+    The Rules and Need Help links are now clickable markdown links
+    directly inside the embed text, so no extra link-button row is shown.
     """
 
     def __init__(self):
         super().__init__(timeout=None)
-
-        # Rules link
-        self.add_item(
-            Button(
-                label="",
-                emoji="📜",
-                style=ButtonStyle.link,
-                url=VOICE_RULES_URL,
-                row=0,
-            )
-        )
-
-        # Need Help link
-        self.add_item(
-            Button(
-                label="",
-                emoji="🆘",
-                style=ButtonStyle.link,
-                url=VOICE_NEED_HELP_URL,
-                row=0,
-            )
-        )
 
 
 class VoicePanelControlView(View):
@@ -4851,9 +4826,6 @@ async def send_panel(interaction: Interaction, panel: str):
         voice_embed, voice_links, voice_controls = make_full_voice_panel()
         await interaction.channel.send(
             embed=voice_embed,
-            view=voice_links,
-        )
-        await interaction.channel.send(
             view=voice_controls,
         )
     elif panel == "games":
