@@ -31,6 +31,7 @@ try:
 except Exception as exc:
     PIL_OK = False
     print(f"[TWEET IMAGE] Pillow unavailable: {exc!r}")
+    print("[TWEET IMAGE] Install Pillow with: pip install Pillow")
 
 # Voice dependency diagnostics
 try:
@@ -1194,7 +1195,7 @@ class TweetModal(Modal):
             # This removes the simple-looking Discord card from the final tweet.
             if image_bytes is None:
                 return await interaction.followup.send(
-                    "❌ Tweet image could not be generated. Make sure `Pillow` is installed in requirements.txt and redeploy.",
+                    "❌ Tweet image could not be generated. Pillow is missing on the server. Add `Pillow>=10.0.0` to `requirements.txt`, then redeploy Railway.",
                     ephemeral=True,
                 )
 
