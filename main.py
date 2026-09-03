@@ -157,7 +157,7 @@ CHANNEL_IDS = {
     "ticket": 1482902524376780932,      # 🎫 Ticket/help
 
     # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
-    "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "0")),          # 🐦 Tweet panel + tweet threads
+    "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1544405375632015552")),          # 🐦 Published tweet messages (NOT threads)
     "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
     "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
 }
@@ -946,7 +946,7 @@ def get_role_request_embed():
 # ==========================================
 # Dark Tweet = black card + white text.
 # Light Tweet = white card + dark text.
-# Tweet threads are created in CHANNEL_IDS["tweets"] when configured.
+# Published tweets are sent as normal messages in CHANNEL_IDS["tweets"]. No tweet threads are created.
 
 TWEET_WIDTH = 1200
 TWEET_HEIGHT = 675
@@ -1074,24 +1074,28 @@ class TweetModal(Modal):
     async def on_submit(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        parent_id = CHANNEL_IDS.get("tweets", 0)
-        parent = interaction.guild.get_channel(parent_id) if interaction.guild and parent_id else None
-        if not isinstance(parent, discord.TextChannel):
-            parent = interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None
+        # The panel can be in any channel. The finished tweet is ALWAYS
+        # published as a normal message in the configured Tweets channel.
+        post_channel_id = CHANNEL_IDS.get("tweets", 0)
+        post_channel = (
+            interaction.guild.get_channel(post_channel_id)
+            if interaction.guild and post_channel_id
+            else None
+        )
 
-        if parent is None:
-            return await interaction.followup.send("❌ Tweet channel is not configured. Put `TWEETS_CHANNEL_ID` in the config.", ephemeral=True)
-
-        try:
-            thread_name = f"🐦・{interaction.user.display_name}'s tweet"[:100]
-            thread = await parent.create_thread(
-                name=thread_name,
-                type=discord.ChannelType.public_thread,
-                auto_archive_duration=1440,
-                reason=f"Moon Night tweet by {interaction.user} ({interaction.user.id})",
+        if not isinstance(post_channel, discord.TextChannel):
+            return await interaction.followup.send(
+                "❌ Tweet publish channel is not configured. Put the channel ID in `CHANNEL_IDS['tweets']` or set `TWEETS_CHANNEL_ID`.",
+                ephemeral=True,
             )
 
-            image_bytes = await create_tweet_image(interaction.user, self.thought.value, self.theme)
+        try:
+            image_bytes = await create_tweet_image(
+                interaction.user,
+                self.thought.value,
+                self.theme,
+            )
+
             embed = discord.Embed(
                 title=f"📝 New Tweet By : {interaction.user.mention}",
                 color=EMBED_COLOR,
@@ -1102,33 +1106,40 @@ class TweetModal(Modal):
             if image_bytes is not None:
                 file = discord.File(image_bytes, filename="moon_night_tweet.png")
                 embed.set_image(url="attachment://moon_night_tweet.png")
-                await thread.send(embed=embed, file=file)
+                published_message = await post_channel.send(embed=embed, file=file)
             else:
                 embed.description = f"> {self.thought.value[:1900]}"
-                await thread.send(embed=embed)
+                published_message = await post_channel.send(embed=embed)
 
             success = discord.Embed(
                 title="✅ Tweet Posted Successfully!",
-                description=f"Your thought has been shared in {thread.mention}.",
+                description=(
+                    f"Your tweet has been posted in {post_channel.mention}.\n"
+                    f"[Jump to tweet](https://discord.com/channels/{interaction.guild.id}/{post_channel.id}/{published_message.id})"
+                ),
                 color=0x57F287,
             )
             await interaction.followup.send(embed=success, ephemeral=True)
 
-            # Also send a compact tweet event to the general audit log.
+            # Tweet publication goes to GENERAL logs only.
             await send_audit_log(
                 interaction.guild,
                 title="Tweet Posted",
                 emoji="🐦",
                 actor=interaction.user,
-                target=thread,
-                channel=parent,
+                target=published_message,
+                channel=post_channel,
                 extra_fields=[
                     ("🎨 Theme", f"`{self.theme.title()}`", True),
+                    ("📍 Published In", post_channel.mention, True),
                     ("📝 Content", f"```{self.thought.value[:900]}```", False),
                 ],
             )
         except (discord.Forbidden, discord.HTTPException) as exc:
-            await interaction.followup.send(f"❌ I couldn't create the tweet thread: `{type(exc).__name__}`.", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ I couldn't publish the tweet: `{type(exc).__name__}`.",
+                ephemeral=True,
+            )
 
 class TweetPanelView(View):
     def __init__(self):
@@ -1156,15 +1167,16 @@ def get_tweet_panel_embed():
     embed.set_image(url=IMAGES["panel_banner"])
     return embed
 
-@bot.tree.command(name="threads", description="Create a public thread in a configured Moon Night channel")
+@bot.tree.command(name="threads", description="Create a public thread in a configured Moon Night channel (not Tweets)")
 @app_commands.describe(destination="Where the thread should be created", name="Thread name")
 @app_commands.choices(destination=[
-    app_commands.Choice(name="Tweets", value="tweets"),
     app_commands.Choice(name="General Threads", value="general_threads"),
     app_commands.Choice(name="Apply Threads", value="apply_threads"),
 ])
 @is_owner_or_admin()
 async def threads(interaction: Interaction, destination: app_commands.Choice[str], name: str):
+    if destination.value == "tweets":
+        return await interaction.response.send_message("❌ Tweets are posted as normal messages, not threads.", ephemeral=True)
     channel_id = CHANNEL_IDS.get(destination.value, 0)
     channel = interaction.guild.get_channel(channel_id) if interaction.guild and channel_id else None
     if not isinstance(channel, discord.TextChannel):
