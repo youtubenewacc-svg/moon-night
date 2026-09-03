@@ -149,6 +149,7 @@ LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))          # 💔 Leave
 TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1544406112097411072")) # 🔊 Temp VC creator
 TEMP_VC_DEFAULT_LIMIT = int(os.getenv("TEMP_VC_DEFAULT_LIMIT", "0"))  # 👥 0 = unlimited
 TEMP_VC_NAME_PREFIX = os.getenv("TEMP_VC_NAME_PREFIX", "🔊")  # 🔊 Temp room prefix
+VOICE_PANEL_CHANNEL_ID = int(os.getenv("VOICE_PANEL_CHANNEL_ID", "1544405711100969094"))
 
 # 📌 CHANNEL IDs — change the numbers only
 CHANNEL_IDS = {
@@ -492,6 +493,7 @@ class DarkNightBot(commands.Bot):
         self.add_view(TicketPanelView())
         self.add_view(GamesCenterView())
         self.add_view(TempVCControlView())
+        self.add_view(VoicePanelView())
         
         await self.tree.sync()
         print("Slash Commands Synced & Persistent Views Registered Successfully!")
@@ -4100,6 +4102,116 @@ async def numberguess(interaction: Interaction, number: app_commands.Range[int, 
 async def quickdraw(interaction: Interaction):
     await interaction.response.send_message(f"🤠 **QUICK DRAW!**\n{random.choice(['⚡ Lightning reflexes!', '🎯 Perfect shot!', '💀 Dark Night was faster!', '🏆 You won the draw!'])}")
 
+# ==========================================
+# 🔊 ONE-TAP VOICE ROOM PANEL
+# ==========================================
+
+def get_voice_panel_embed():
+    embed = discord.Embed(
+        title="🌙 9e Moon Night 🌙 Voice Panel",
+        description=(
+            "Manage your room, adjust visibility, and control voice features from one clean panel.\n\n"
+            "✦ **Check our rules here.**\n"
+            "✦ **For voice assistance, join a support voice channel.**\n\n"
+            "👑 **Room owner + Server Owner/Admin can control it.**"
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_image(url=GENERAL_TICKET_BANNER_URL)
+    embed.set_thumbnail(url=COMMUNITY_IMAGE_URL)
+    embed.set_footer(text="© 2026 Moon Night 🌙. All rights reserved.")
+    return embed
+
+
+class VoicePanelView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _get_room(self, interaction: Interaction):
+        voice = interaction.user.voice
+        channel = voice.channel if voice else None
+        if not isinstance(channel, discord.VoiceChannel):
+            await interaction.response.send_message("❌ You must be inside your temporary voice room to use this panel.", ephemeral=True)
+            return None
+        if channel.id not in TEMP_VC_META:
+            await interaction.response.send_message("❌ This is not an active Dark Night temporary room.", ephemeral=True)
+            return None
+        if not can_manage_temp_vc(interaction, channel):
+            await interaction.response.send_message("❌ Only the room owner or Server Owner/Admin can control this room.", ephemeral=True)
+            return None
+        return channel
+
+    @discord.ui.button(label="Lock", emoji="🔒", style=ButtonStyle.secondary, custom_id="voice_panel_lock")
+    async def lock(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if not channel: return
+        meta = TEMP_VC_META[channel.id]
+        meta["locked"] = True
+        await channel.set_permissions(channel.guild.default_role, connect=False, reason=f"Voice panel lock by {interaction.user}")
+        owner = channel.guild.get_member(meta.get("owner"))
+        if owner:
+            await channel.set_permissions(owner, connect=True, reason="Keep room owner connected")
+        await interaction.response.send_message("🔒 **Room locked.**", ephemeral=True)
+
+    @discord.ui.button(label="Unlock", emoji="🔓", style=ButtonStyle.success, custom_id="voice_panel_unlock")
+    async def unlock(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if not channel: return
+        TEMP_VC_META[channel.id]["locked"] = False
+        await channel.set_permissions(channel.guild.default_role, connect=None, reason=f"Voice panel unlock by {interaction.user}")
+        await interaction.response.send_message("🔓 **Room unlocked.**", ephemeral=True)
+
+    @discord.ui.button(label="Limit", emoji="👥", style=ButtonStyle.primary, custom_id="voice_panel_limit")
+    async def limit(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if channel: await interaction.response.send_modal(VCLimitModal(channel))
+
+    @discord.ui.button(label="Rename", emoji="✏️", style=ButtonStyle.primary, custom_id="voice_panel_rename")
+    async def rename(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if channel: await interaction.response.send_modal(VCRenameModal(channel))
+
+    @discord.ui.button(label="Kick", emoji="👢", style=ButtonStyle.danger, custom_id="voice_panel_kick")
+    async def kick(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if channel: await interaction.response.send_modal(VCKickModal(channel))
+
+    @discord.ui.button(label="Move", emoji="↪️", style=ButtonStyle.secondary, custom_id="voice_panel_move")
+    async def move(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if channel: await interaction.response.send_modal(VCMoveModal(channel))
+
+    @discord.ui.button(label="Close Room", emoji="🗑️", style=ButtonStyle.danger, custom_id="voice_panel_close")
+    async def close(self, interaction: Interaction, button: Button):
+        channel = await self._get_room(interaction)
+        if not channel: return
+        cid = channel.id
+        TEMP_VCS.pop(cid, None)
+        TEMP_VC_META.pop(cid, None)
+        try:
+            await channel.delete(reason=f"Temporary room closed from voice panel by {interaction.user}")
+            await interaction.response.send_message("🗑️ **Temporary room closed.**", ephemeral=True)
+        except discord.HTTPException:
+            await interaction.response.send_message("❌ I could not close the room.", ephemeral=True)
+
+
+@bot.tree.command(name="voicepanel", description="Send the one-tap temporary voice room control panel")
+@is_owner_or_admin()
+async def voicepanel(interaction: Interaction):
+    await interaction.response.defer(ephemeral=True)
+    target = interaction.guild.get_channel(VOICE_PANEL_CHANNEL_ID)
+    if not isinstance(target, discord.VoiceChannel):
+        return await interaction.followup.send(f"❌ Channel `{VOICE_PANEL_CHANNEL_ID}` was not found or is not a voice channel.", ephemeral=True)
+    try:
+        await target.send(embed=get_voice_panel_embed(), view=VoicePanelView())
+    except discord.Forbidden:
+        return await interaction.followup.send("❌ I cannot send messages in that voice channel. Check the bot's permissions.", ephemeral=True)
+    except discord.HTTPException as exc:
+        print(f"[VOICE PANEL] Send error: {exc!r}")
+        return await interaction.followup.send("❌ Discord returned an error while sending the panel.", ephemeral=True)
+    await interaction.followup.send(f"✅ Voice panel sent to {target.mention}.", ephemeral=True)
+
+
 @bot.tree.command(name="vccenter", description="Open your temporary voice room controls")
 async def vccenter(interaction: Interaction):
     channel = interaction.user.voice.channel if interaction.user.voice else None
@@ -4997,7 +5109,8 @@ class TicketPanelView(View):
     app_commands.Choice(name="Role Request Panel", value="rolerequest"),
     app_commands.Choice(name="Tweets System", value="tweets"),
     app_commands.Choice(name="Games Center", value="games"),
-    app_commands.Choice(name="General Ticket", value="general_ticket")
+    app_commands.Choice(name="General Ticket", value="general_ticket"),
+    app_commands.Choice(name="Voice Room Panel", value="voice_panel")
 ])
 @is_owner_or_admin()
 async def send_panel(interaction: Interaction, panel: str):
@@ -5023,6 +5136,11 @@ async def send_panel(interaction: Interaction, panel: str):
         await interaction.channel.send(embed=get_role_request_embed(), view=RoleRequestView())
     elif panel == "tweets":
         await interaction.channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
+    elif panel == "voice_panel":
+        target = interaction.guild.get_channel(VOICE_PANEL_CHANNEL_ID)
+        if not isinstance(target, discord.VoiceChannel):
+            return await interaction.followup.send(f"❌ Voice panel channel `{VOICE_PANEL_CHANNEL_ID}` was not found or is not a voice channel.", ephemeral=True)
+        await target.send(embed=get_voice_panel_embed(), view=VoicePanelView())
     elif panel == "general_ticket":
         await interaction.channel.send(
             embed=get_general_ticket_embed(),
