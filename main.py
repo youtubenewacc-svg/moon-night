@@ -6,6 +6,9 @@ import json
 import asyncio
 import shutil
 import ctypes.util
+import io
+import textwrap
+import urllib.request
 from datetime import timedelta, datetime, timezone
 import discord
 import yt_dlp
@@ -21,6 +24,13 @@ except Exception as exc:
 from discord.ext import commands
 from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
+
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    PIL_OK = True
+except Exception as exc:
+    PIL_OK = False
+    print(f"[TWEET IMAGE] Pillow unavailable: {exc!r}")
 
 # Voice dependency diagnostics
 try:
@@ -126,7 +136,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # 👑 OWNER / LOGGING / IMPORTANT CHANNELS
 OWNER_ID = int(os.getenv("OWNER_ID", "1544404824076853258"))          # 👑 Bot owner ID
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544883573968867419"))  # 📝 Role-request log channel
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))  # 🧑‍💼 Legacy / Apply log channel
+GENERAL_LOG_CHANNEL_ID = int(os.getenv("GENERAL_LOG_CHANNEL_ID", "1544883573968867419"))    # 🧾 General server audit log
+APPLY_LOG_CHANNEL_ID = int(os.getenv("APPLY_LOG_CHANNEL_ID", str(LOG_CHANNEL_ID)))  # 🧑‍💼 Apply/application log
 JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))                  # ⛓️ Jail role
 PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))        # 🛡️ Protected role (optional)
 WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))      # 👋 Welcome channel; 0 = off
@@ -143,6 +155,11 @@ CHANNEL_IDS = {
     "commands": 1482902491711541328,    # 🤖 Bot commands
     "temp_voice": 1482902422065123338,  # 🔊 Temporary VC
     "ticket": 1482902524376780932,      # 🎫 Ticket/help
+
+    # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
+    "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "0")),          # 🐦 Tweet panel + tweet threads
+    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
+    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
 }
 
 # 🎭 ROLE IDs — change the numbers only
@@ -242,11 +259,17 @@ EMBED_COLOR = 0x2b2d31
 # 🧾 AUDIT / SERVER LOG ROOMS
 # Put one or more channel IDs here, separated by commas.
 # Example: "123456789012345678,987654321098765432"
-AUDIT_LOG_CHANNEL_IDS = [
-    int(x.strip())
-    for x in os.getenv("AUDIT_LOG_CHANNEL_IDS", str(LOG_CHANNEL_ID)).split(",")
-    if x.strip().isdigit() and int(x.strip()) > 0
-]
+# General audit logs are kept separate from Apply logs.
+# You can still use AUDIT_LOG_CHANNEL_IDS for multiple general log rooms.
+_general_log_env = os.getenv("AUDIT_LOG_CHANNEL_IDS", "")
+if _general_log_env.strip():
+    AUDIT_LOG_CHANNEL_IDS = [
+        int(x.strip())
+        for x in _general_log_env.split(",")
+        if x.strip().isdigit() and int(x.strip()) > 0
+    ]
+else:
+    AUDIT_LOG_CHANNEL_IDS = [GENERAL_LOG_CHANNEL_ID] if GENERAL_LOG_CHANNEL_ID > 0 else []
 
 # How far back we search Discord Audit Logs to match the action with its actor.
 AUDIT_MATCH_SECONDS = 20
@@ -429,6 +452,7 @@ class MoonNightBot(commands.Bot):
         self.add_view(GenderRolesView())
         self.add_view(GamesRolesView())
         self.add_view(RoleRequestView())
+        self.add_view(TweetPanelView())
         
         await self.tree.sync()
         print("Slash Commands Synced & Persistent Views Registered Successfully!")
@@ -575,6 +599,25 @@ class ApplyModal(Modal, title="Staff Application Form"):
     experience = TextInput(label="Experience & Active Time", style=discord.TextStyle.paragraph, placeholder="Describe your experience...")
 
     async def on_submit(self, interaction: Interaction):
+        log_channel = interaction.guild.get_channel(APPLY_LOG_CHANNEL_ID) if interaction.guild else None
+        if log_channel:
+            embed = discord.Embed(
+                title="🧑‍💼 New Staff Application",
+                description=(
+                    f"👤 **Applicant:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                    f"📍 **Submitted in:** {interaction.channel.mention if interaction.channel else '`Unknown`'}\n"
+                    f"🎂 **Age:** `{str(self.age.value)[:100]}`\n"
+                    f"🕒 **Experience / Active Time:**\n{str(self.experience.value)[:1500]}"
+                ),
+                color=EMBED_COLOR,
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            embed.set_footer(text="Moon Night • Apply Logs")
+            try:
+                await log_channel.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
         await interaction.response.send_message("✅ Dynamic application sent! Staff team will review it.", ephemeral=True)
 
 class ApplyView(View):
@@ -720,11 +763,26 @@ async def toggle_role(interaction: Interaction, role_key: str):
         return await interaction.response.send_message(f"❌ Role for `{role_key}` is not configured or not found!", ephemeral=True)
         
     if role in interaction.user.roles:
-        await interaction.user.remove_roles(role)
+        await interaction.user.remove_roles(role, reason=f"Self-role removal by {interaction.user} ({interaction.user.id})")
         await interaction.response.send_message(f"➖ Removed **{role.name}**!", ephemeral=True)
+        action = "Role Removed"
+        emoji = "➖"
     else:
-        await interaction.user.add_roles(role)
+        await interaction.user.add_roles(role, reason=f"Self-role selection by {interaction.user} ({interaction.user.id})")
         await interaction.response.send_message(f"➕ Added **{role.name}**!", ephemeral=True)
+        action = "Role Added"
+        emoji = "➕"
+
+    # These role buttons know the exact channel where the action happened.
+    await send_audit_log(
+        interaction.guild,
+        title=action,
+        emoji=emoji,
+        actor=interaction.user,
+        target=role,
+        channel=interaction.channel,
+        extra_fields=[("🧩 Source", "Self-role panel", True), ("🔑 Role ID", f"`{role.id}`", True)],
+    )
 
 class SituationRolesView(View):
     def __init__(self):
@@ -837,7 +895,7 @@ class RoleRequestSelect(Select):
 
         await interaction.response.send_message(f"📩 Role request opened for **{category}** category!", ephemeral=True)
 
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        log_channel = interaction.guild.get_channel(APPLY_LOG_CHANNEL_ID)
         if log_channel:
             log_embed = discord.Embed(
                 title="📥 New Role Request",
@@ -881,6 +939,255 @@ def get_role_request_embed():
     embed.set_image(url=IMAGES["role_request"])
     return embed
 
+
+
+# ==========================================
+# 9. 🐦 MOON NIGHT TWEETS / THREAD SYSTEM
+# ==========================================
+# Dark Tweet = black card + white text.
+# Light Tweet = white card + dark text.
+# Tweet threads are created in CHANNEL_IDS["tweets"] when configured.
+
+TWEET_WIDTH = 1200
+TWEET_HEIGHT = 675
+
+def _font(size, bold=False):
+    if not PIL_OK:
+        return None
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
+
+def _download_image_bytes(url, timeout=8):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 MoonNightBot/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return response.read()
+
+async def _load_remote_image(url):
+    if not url or not PIL_OK:
+        return None
+    try:
+        raw = await asyncio.to_thread(_download_image_bytes, str(url))
+        return Image.open(io.BytesIO(raw)).convert("RGBA")
+    except Exception as exc:
+        print(f"[TWEET IMAGE] Could not load image: {exc!r}")
+        return None
+
+def _rounded_avatar(base, avatar, box):
+    if avatar is None:
+        return
+    size = box[2] - box[0]
+    avatar = ImageOps.fit(avatar, (size, size), method=Image.Resampling.LANCZOS)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
+    base.paste(avatar, (box[0], box[1]), mask)
+
+async def create_tweet_image(member: discord.Member, text: str, theme: str):
+    if not PIL_OK:
+        return None
+
+    dark = theme == "dark"
+    bg = (10, 10, 11, 255) if dark else (250, 250, 250, 255)
+    card = (20, 20, 22, 255) if dark else (255, 255, 255, 255)
+    primary = (245, 245, 245, 255) if dark else (20, 20, 22, 255)
+    secondary = (155, 155, 160, 255) if dark else (90, 90, 95, 255)
+
+    image = Image.new("RGBA", (TWEET_WIDTH, TWEET_HEIGHT), bg)
+    draw = ImageDraw.Draw(image)
+
+    # Main tweet card
+    margin = 45
+    draw.rounded_rectangle((margin, margin, TWEET_WIDTH-margin, TWEET_HEIGHT-margin), radius=34, fill=card)
+
+    avatar = await _load_remote_image(member.display_avatar.url)
+    _rounded_avatar(image, avatar, (85, 85, 185, 185))
+
+    bold_46 = _font(46, True)
+    regular_34 = _font(34, False)
+    regular_28 = _font(28, False)
+    bold_26 = _font(26, True)
+
+    name = str(member.display_name)[:28]
+    username = f"@{member.name}"[:34]
+    draw.text((215, 88), name, font=bold_46, fill=primary)
+    draw.text((215, 145), username, font=regular_28, fill=secondary)
+
+    # Moon Night logo in the top-right
+    logo = await _load_remote_image(IMAGES.get("moon_logo"))
+    if logo is not None:
+        logo.thumbnail((92, 92), Image.Resampling.LANCZOS)
+        image.alpha_composite(logo, (TWEET_WIDTH - 145, 75))
+
+    # Tweet body with wrapping
+    body = text.strip()[:700]
+    wrapped = textwrap.wrap(body, width=46) or [""]
+    body_y = 235
+    for line in wrapped[:8]:
+        draw.text((85, body_y), line, font=regular_34, fill=primary)
+        body_y += 50
+
+    # Divider + stats like the screenshot
+    divider_y = 505
+    draw.line((85, divider_y, TWEET_WIDTH-85, divider_y), fill=(70,70,74,255) if dark else (215,215,218,255), width=2)
+    stats = [("77", "Replies"), ("1,260", "Likes"), ("13,208", "Views")]
+    x = 90
+    for number, label in stats:
+        draw.text((x, 535), number, font=bold_26, fill=primary)
+        number_w = draw.textbbox((x,535), number, font=bold_26)[2] - x
+        draw.text((x + number_w + 12, 538), label, font=regular_28, fill=secondary)
+        x += 235
+
+    brand = "Moon Night Tweets"
+    bbox = draw.textbbox((0,0), brand, font=regular_28)
+    draw.text((TWEET_WIDTH-95-(bbox[2]-bbox[0]), 585), f"⌁ {brand} ⌁", font=regular_28, fill=secondary)
+
+    output = io.BytesIO()
+    image.convert("RGB").save(output, format="PNG", optimize=True)
+    output.seek(0)
+    return output
+
+class TweetModal(Modal):
+    def __init__(self, theme: str):
+        self.theme = theme
+        title = "Dark Tweet" if theme == "dark" else "Light Tweet"
+        super().__init__(title=title)
+        self.thought = TextInput(
+            label="Your thought",
+            placeholder="Write your tweet...",
+            style=discord.TextStyle.paragraph,
+            min_length=1,
+            max_length=700,
+            required=True,
+        )
+        self.add_item(self.thought)
+
+    async def on_submit(self, interaction: Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        parent_id = CHANNEL_IDS.get("tweets", 0)
+        parent = interaction.guild.get_channel(parent_id) if interaction.guild and parent_id else None
+        if not isinstance(parent, discord.TextChannel):
+            parent = interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None
+
+        if parent is None:
+            return await interaction.followup.send("❌ Tweet channel is not configured. Put `TWEETS_CHANNEL_ID` in the config.", ephemeral=True)
+
+        try:
+            thread_name = f"🐦・{interaction.user.display_name}'s tweet"[:100]
+            thread = await parent.create_thread(
+                name=thread_name,
+                type=discord.ChannelType.public_thread,
+                auto_archive_duration=1440,
+                reason=f"Moon Night tweet by {interaction.user} ({interaction.user.id})",
+            )
+
+            image_bytes = await create_tweet_image(interaction.user, self.thought.value, self.theme)
+            embed = discord.Embed(
+                title=f"📝 New Tweet By : {interaction.user.mention}",
+                color=EMBED_COLOR,
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.set_footer(text="Moon Night Tweets • Share your thoughts")
+
+            if image_bytes is not None:
+                file = discord.File(image_bytes, filename="moon_night_tweet.png")
+                embed.set_image(url="attachment://moon_night_tweet.png")
+                await thread.send(embed=embed, file=file)
+            else:
+                embed.description = f"> {self.thought.value[:1900]}"
+                await thread.send(embed=embed)
+
+            success = discord.Embed(
+                title="✅ Tweet Posted Successfully!",
+                description=f"Your thought has been shared in {thread.mention}.",
+                color=0x57F287,
+            )
+            await interaction.followup.send(embed=success, ephemeral=True)
+
+            # Also send a compact tweet event to the general audit log.
+            await send_audit_log(
+                interaction.guild,
+                title="Tweet Posted",
+                emoji="🐦",
+                actor=interaction.user,
+                target=thread,
+                channel=parent,
+                extra_fields=[
+                    ("🎨 Theme", f"`{self.theme.title()}`", True),
+                    ("📝 Content", f"```{self.thought.value[:900]}```", False),
+                ],
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            await interaction.followup.send(f"❌ I couldn't create the tweet thread: `{type(exc).__name__}`.", ephemeral=True)
+
+class TweetPanelView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Dark Tweet", emoji="🖤", style=ButtonStyle.secondary, custom_id="tweet_dark")
+    async def dark_tweet(self, interaction: Interaction, button: Button):
+        await interaction.response.send_modal(TweetModal("dark"))
+
+    @discord.ui.button(label="Light Tweet", emoji="🤍", style=ButtonStyle.secondary, custom_id="tweet_light")
+    async def light_tweet(self, interaction: Interaction, button: Button):
+        await interaction.response.send_modal(TweetModal("light"))
+
+def get_tweet_panel_embed():
+    embed = discord.Embed(
+        title="🐦  Moon Night's Tweets System  ›",
+        description=(
+            "## ▷  Share your thoughts with the community!\n\n"
+            "**│ Click the button below to write a new tweet!**\n\n"
+            "Choose **Dark Tweet** for the black card with white text, or **Light Tweet** for the white card with dark text.\n\n"
+            "-# `© 2026 Moon Night™. All rights reserved.`"
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_image(url=IMAGES["panel_banner"])
+    return embed
+
+@bot.tree.command(name="threads", description="Create a public thread in a configured Moon Night channel")
+@app_commands.describe(destination="Where the thread should be created", name="Thread name")
+@app_commands.choices(destination=[
+    app_commands.Choice(name="Tweets", value="tweets"),
+    app_commands.Choice(name="General Threads", value="general_threads"),
+    app_commands.Choice(name="Apply Threads", value="apply_threads"),
+])
+@is_owner_or_admin()
+async def threads(interaction: Interaction, destination: app_commands.Choice[str], name: str):
+    channel_id = CHANNEL_IDS.get(destination.value, 0)
+    channel = interaction.guild.get_channel(channel_id) if interaction.guild and channel_id else None
+    if not isinstance(channel, discord.TextChannel):
+        return await interaction.response.send_message(
+            f"❌ `{destination.value}` channel is not configured. Put its ID in `CHANNEL_IDS` at the top of `main.py`.",
+            ephemeral=True,
+        )
+    try:
+        thread = await channel.create_thread(
+            name=name[:100],
+            type=discord.ChannelType.public_thread,
+            auto_archive_duration=1440,
+            reason=f"Thread created by {interaction.user} ({interaction.user.id})",
+        )
+        await interaction.response.send_message(
+            f"🧵 Thread created: {thread.mention}\n📍 Channel: {channel.mention}",
+            ephemeral=True,
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.response.send_message(
+            f"❌ Couldn't create the thread: `{type(exc).__name__}`.",
+            ephemeral=True,
+        )
 
 
 # ==========================================
@@ -3154,6 +3461,39 @@ async def temporary_voice_listener(member, before, after):
 
 
 # ==========================================
+# 🔊 VOICE ACTIVITY LOGS
+# ==========================================
+@bot.listen("on_voice_state_update")
+async def audit_voice_activity(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    # Ignore pure mute/deaf changes from the general room spam unless a channel changed.
+    if before.channel == after.channel:
+        return
+
+    if before.channel is None and after.channel is not None:
+        title = "Voice Joined"
+        emoji = "📥"
+        details = [("➡️ Joined", _channel_text(after.channel), False)]
+    elif before.channel is not None and after.channel is None:
+        title = "Voice Left"
+        emoji = "📤"
+        details = [("⬅️ Left", _channel_text(before.channel), False)]
+    else:
+        title = "Voice Moved"
+        emoji = "🔀"
+        details = [("⬅️ From", _channel_text(before.channel), True), ("➡️ To", _channel_text(after.channel), True)]
+
+    await send_audit_log(
+        member.guild,
+        title=title,
+        emoji=emoji,
+        actor=member,
+        target=member,
+        channel=after.channel or before.channel,
+        extra_fields=details,
+    )
+
+
+# ==========================================
 # MASTER SLASH COMMAND TO SEND PANELS
 # ==========================================
 @bot.tree.command(name="send_panel", description="Send Moon Night embeds (Owner Only)")
@@ -3165,7 +3505,8 @@ async def temporary_voice_listener(member, before, after):
     app_commands.Choice(name="Apply Staff Team", value="apply"),
     app_commands.Choice(name="Booster Perks Roles", value="boosters"),
     app_commands.Choice(name="Self Roles", value="selfroles"),
-    app_commands.Choice(name="Role Request Panel", value="rolerequest")
+    app_commands.Choice(name="Role Request Panel", value="rolerequest"),
+    app_commands.Choice(name="Tweets System", value="tweets")
 ])
 @is_owner_or_admin()
 async def send_panel(interaction: Interaction, panel: str):
@@ -3189,6 +3530,8 @@ async def send_panel(interaction: Interaction, panel: str):
             await interaction.channel.send(embed=embed_obj, view=view_obj)
     elif panel == "rolerequest":
         await interaction.channel.send(embed=get_role_request_embed(), view=RoleRequestView())
+    elif panel == "tweets":
+        await interaction.channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
 
     await interaction.followup.send(f"✅ Embed **{panel}** sent successfully!", ephemeral=True)
 
