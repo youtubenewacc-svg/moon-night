@@ -144,6 +144,8 @@ PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))        # 🛡️ Pr
 WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))      # 👋 Welcome channel; 0 = off
 LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))          # 💔 Leave channel; 0 = off
 TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1544406112097411072")) # 🔊 Temp VC creator
+TEMP_VC_DEFAULT_LIMIT = int(os.getenv("TEMP_VC_DEFAULT_LIMIT", "0"))  # 👥 0 = unlimited
+TEMP_VC_NAME_PREFIX = os.getenv("TEMP_VC_NAME_PREFIX", "🔊")  # 🔊 Temp room prefix
 
 # 📌 CHANNEL IDs — change the numbers only
 CHANNEL_IDS = {
@@ -410,6 +412,7 @@ def load_data():
 DATA = load_data()
 XP_LAST_MESSAGE = {}
 TEMP_VCS = {}
+TEMP_VC_META = {}  # channel_id -> {owner, locked, limit, created_at}
 MAFIA_GAMES = {}
 
 def save_data():
@@ -426,6 +429,32 @@ def get_wallet(guild_id, user_id):
     key = user_key(guild_id, user_id)
     DATA["economy"].setdefault(key, {"coins": 0, "last_daily": 0})
     return DATA["economy"][key]
+
+def parse_coin_amount(value):
+    """Accept coin amounts like 1000, 1k, 1.5k, 1m, 2b."""
+    if isinstance(value, int):
+        return value if value > 0 else None
+    text = str(value).strip().lower().replace(" ", "")
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)([kmbt]?)", text)
+    if not match:
+        return None
+    number = float(match.group(1))
+    suffix = match.group(2)
+    mult = {"": 1, "k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}[suffix]
+    amount = int(number * mult)
+    return amount if amount > 0 else None
+
+def format_coins(amount):
+    amount = int(amount)
+    if amount >= 1_000_000_000_000:
+        return f"{amount/1_000_000_000_000:.2f}t".rstrip("0").rstrip(".")
+    if amount >= 1_000_000_000:
+        return f"{amount/1_000_000_000:.2f}b".rstrip("0").rstrip(".")
+    if amount >= 1_000_000:
+        return f"{amount/1_000_000:.2f}m".rstrip("0").rstrip(".")
+    if amount >= 1_000:
+        return f"{amount/1_000:.2f}k".rstrip("0").rstrip(".")
+    return f"{amount:,}"
 
 def get_xp(guild_id, user_id):
     key = user_key(guild_id, user_id)
@@ -453,6 +482,8 @@ class MoonNightBot(commands.Bot):
         self.add_view(GamesRolesView())
         self.add_view(RoleRequestView())
         self.add_view(TweetPanelView())
+        self.add_view(GamesCenterView())
+        self.add_view(TempVCControlView())
         
         await self.tree.sync()
         print("Slash Commands Synced & Persistent Views Registered Successfully!")
@@ -3240,7 +3271,11 @@ async def eightball(interaction: Interaction, question: str):
     )
 
 @bot.tree.command(name="roulette", description="Virtual roulette using Moon Coins")
-async def roulette(interaction: Interaction, amount: app_commands.Range[int, 1, 100000], color: str):
+async def roulette(interaction: Interaction, amount: str, color: str):
+    parsed_amount = parse_coin_amount(amount)
+    if parsed_amount is None:
+        return await interaction.response.send_message("❌ Invalid amount. Use `1k`, `1m`, `2b` or a number.", ephemeral=True)
+    amount = parsed_amount
     color = color.lower().strip()
     if color not in {"red","black","green"}:
         return await interaction.response.send_message("❌ Use red, black or green.", ephemeral=True)
@@ -3261,7 +3296,11 @@ async def roulette(interaction: Interaction, amount: app_commands.Range[int, 1, 
     await interaction.response.send_message(f"🎰 `{number}` — **{result.upper()}**\n{text}\n💰 `{wallet['coins']:,}`")
 
 @bot.tree.command(name="slots", description="Virtual slot machine")
-async def slots(interaction: Interaction, amount: app_commands.Range[int, 1, 100000]):
+async def slots(interaction: Interaction, amount: str):
+    parsed_amount = parse_coin_amount(amount)
+    if parsed_amount is None:
+        return await interaction.response.send_message("❌ Invalid amount. Use `1k`, `1m`, `2b` or a number.", ephemeral=True)
+    amount = parsed_amount
     wallet = get_wallet(interaction.guild.id, interaction.user.id)
     if wallet["coins"] < amount:
         return await interaction.response.send_message("❌ Not enough Moon Coins.", ephemeral=True)
@@ -3288,7 +3327,11 @@ def blackjack_total(cards):
     return total
 
 @bot.tree.command(name="blackjack", description="Virtual blackjack")
-async def blackjack(interaction: Interaction, amount: app_commands.Range[int, 1, 100000]):
+async def blackjack(interaction: Interaction, amount: str):
+    parsed_amount = parse_coin_amount(amount)
+    if parsed_amount is None:
+        return await interaction.response.send_message("❌ Invalid amount. Use `1k`, `1m`, `2b` or a number.", ephemeral=True)
+    amount = parsed_amount
     wallet = get_wallet(interaction.guild.id, interaction.user.id)
     if wallet["coins"] < amount:
         return await interaction.response.send_message("❌ Not enough Moon Coins.", ephemeral=True)
@@ -3312,6 +3355,191 @@ async def blackjack(interaction: Interaction, amount: app_commands.Range[int, 1,
         result = f"🏆 Won **{amount:,}**."
     save_data()
     await interaction.response.send_message(f"🃏 Player `{p}` vs Dealer `{d}`\n{result}\n💰 `{wallet['coins']:,}`")
+
+
+# ==========================================
+# 🎮 GAMES CENTER — one panel for all games
+# ==========================================
+class BetModal(Modal):
+    def __init__(self, game_name):
+        self.game_name = game_name
+        super().__init__(title=f"{game_name} • Moon Coins")
+        self.amount = TextInput(label="Bet amount", placeholder="Examples: 1k, 1m, 2b", max_length=30, required=True)
+        self.add_item(self.amount)
+
+    async def on_submit(self, interaction: Interaction):
+        amount = parse_coin_amount(self.amount.value)
+        if amount is None:
+            return await interaction.response.send_message("❌ Invalid amount. Use values like `1k`, `1m`, `2b`.", ephemeral=True)
+        wallet = get_wallet(interaction.guild.id, interaction.user.id)
+        if wallet["coins"] < amount:
+            return await interaction.response.send_message(f"❌ You need **{format_coins(amount)}** Moon Coins.", ephemeral=True)
+        game = self.game_name
+        if game == "Slots":
+            symbols = ["🌙", "⭐", "💎", "🍒", "7️⃣", "🪙"]
+            result = [random.choice(symbols) for _ in range(3)]
+            multiplier = 10 if len(set(result)) == 1 else (3 if len(set(result)) == 2 else 0)
+            wallet["coins"] += amount * multiplier - amount
+            text = f"🎰 **[ {' | '.join(result)} ]**\n" + (f"🏆 Won **{format_coins(amount*multiplier)}**!" if multiplier else f"💀 Lost **{format_coins(amount)}**.")
+        elif game == "Roulette":
+            number = random.randint(0, 36)
+            reds = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+            color = "green" if number == 0 else ("red" if number in reds else "black")
+            if color == "green":
+                wallet["coins"] += amount * 35
+                text = f"🎰 **0 • GREEN** — 🏆 Jackpot **{format_coins(amount*35)}**!"
+            else:
+                wallet["coins"] -= amount
+                text = f"🎰 **{number} • {color.upper()}** — 💀 Lost **{format_coins(amount)}**."
+                # 50/50 simple color bet is intentionally not exposed in this panel.
+                if random.random() < 0.5:
+                    wallet["coins"] += amount * 2
+                    text += "\n✨ Moon Night bonus win!"
+        elif game == "High / Low":
+            n = random.randint(1, 13)
+            guess = "HIGH" if n >= 7 else "LOW"
+            wallet["coins"] += amount
+            text = f"🃏 Card: **{n}** • **{guess}**\n🏆 You won **{format_coins(amount)}**!"
+        elif game == "Even / Odd":
+            n = random.randint(1, 36)
+            result = "EVEN" if n % 2 == 0 else "ODD"
+            win = random.choice([True, False])
+            if win:
+                wallet["coins"] += amount
+                text = f"🎯 Number **{n}** • **{result}**\n🏆 Won **{format_coins(amount)}**!"
+            else:
+                wallet["coins"] -= amount
+                text = f"🎯 Number **{n}** • **{result}**\n💀 Lost **{format_coins(amount)}**."
+        elif game == "Wheel":
+            mult = random.choice([0, 0, 0.5, 1, 1, 2, 3, 5, 10])
+            payout = int(amount * mult)
+            wallet["coins"] += payout - amount
+            text = f"🎡 Wheel landed on **x{mult:g}**\n" + (f"🏆 Won **{format_coins(payout)}**!" if payout > amount else f"💀 Lost **{format_coins(amount - payout)}**.")
+        elif game == "Double or Nothing":
+            if random.choice([True, False]):
+                wallet["coins"] += amount
+                text = f"⚡ Double! 🏆 You won **{format_coins(amount)}**."
+            else:
+                wallet["coins"] -= amount
+                text = f"💀 Nothing! Lost **{format_coins(amount)}**."
+        elif game == "Treasure":
+            prize = random.choice([0, 0, 0, amount // 2, amount, amount * 2, amount * 5])
+            wallet["coins"] += prize - amount
+            text = f"🗝️ Treasure payout: **{format_coins(prize)}**\n" + (f"🏆 Profit: **{format_coins(prize-amount)}**!" if prize >= amount else f"💀 Lost **{format_coins(amount-prize)}**.")
+        else:
+            wallet["coins"] -= amount
+            text = f"🎮 {game} result: **{random.choice(['WIN', 'LOSE'])}**"
+        save_data()
+        embed = discord.Embed(title=f"🎮 {game}", description=text + f"\n\n💰 Balance: **{format_coins(wallet['coins'])}**", color=EMBED_COLOR)
+        await interaction.response.send_message(embed=embed)
+
+class GameQuestionModal(Modal):
+    def __init__(self, game_name):
+        self.game_name = game_name
+        super().__init__(title=game_name)
+        self.value = TextInput(label="Your choice / question", placeholder="Type your choice...", max_length=200, required=True)
+        self.add_item(self.value)
+
+    async def on_submit(self, interaction: Interaction):
+        value = self.value.value.strip().lower()
+        if self.game_name == "RPS":
+            if value not in {"rock", "paper", "scissors"}:
+                return await interaction.response.send_message("❌ Use `rock`, `paper` or `scissors`.", ephemeral=True)
+            bot_choice = random.choice(["rock", "paper", "scissors"])
+            win = (value, bot_choice) in {("rock","scissors"),("paper","rock"),("scissors","paper")}
+            result = "🤝 Draw!" if value == bot_choice else ("🏆 You win!" if win else "💀 Moon Night wins!")
+            return await interaction.response.send_message(f"✊ You: **{value}**\n🤖 Moon Night: **{bot_choice}**\n\n{result}")
+        answers = ["Yes. 🌙", "No. 💀", "Absolutely. ✨", "Ask later. 🔮", "Very likely. ⭐", "Unlikely. 🌑"]
+        await interaction.response.send_message(f"🔮 **{self.value.value}**\n\n**Answer:** {random.choice(answers)}")
+
+class GamesCenterSelect(Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Coinflip", emoji="🪙", value="coinflip"),
+            discord.SelectOption(label="Dice", emoji="🎲", value="dice"),
+            discord.SelectOption(label="RPS", emoji="✊", value="rps"),
+            discord.SelectOption(label="8-Ball", emoji="🔮", value="8ball"),
+            discord.SelectOption(label="Roulette", emoji="🎰", value="roulette"),
+            discord.SelectOption(label="Slots", emoji="🎰", value="slots"),
+            discord.SelectOption(label="Blackjack", emoji="🃏", value="blackjack"),
+            discord.SelectOption(label="High / Low", emoji="🃏", value="highlow"),
+            discord.SelectOption(label="Even / Odd", emoji="🎯", value="evenodd"),
+            discord.SelectOption(label="Wheel", emoji="🎡", value="wheel"),
+            discord.SelectOption(label="Double or Nothing", emoji="⚡", value="double"),
+            discord.SelectOption(label="Treasure", emoji="🗝️", value="treasure"),
+            discord.SelectOption(label="Number Guess", emoji="🔢", value="numberguess"),
+            discord.SelectOption(label="Quick Draw", emoji="🤠", value="quickdraw"),
+            discord.SelectOption(label="Lucky Color", emoji="🌈", value="luckycolor"),
+        ]
+        super().__init__(placeholder="🎮 Choose a Moon Night game...", min_values=1, max_values=1, options=options, custom_id="moon_games_center")
+
+    async def callback(self, interaction: Interaction):
+        game = self.values[0]
+        if game == "coinflip":
+            return await interaction.response.send_message(f"🪙 **{random.choice(['HEADS', 'TAILS'])}**")
+        if game == "dice":
+            return await interaction.response.send_message(f"🎲 You rolled **{random.randint(1, 6)} / 6**.")
+        if game == "rps":
+            return await interaction.response.send_modal(GameQuestionModal("RPS"))
+        if game == "8ball":
+            return await interaction.response.send_modal(GameQuestionModal("8-Ball"))
+        names = {"roulette":"Roulette", "slots":"Slots", "blackjack":"Blackjack", "highlow":"High / Low", "evenodd":"Even / Odd", "wheel":"Wheel", "double":"Double or Nothing", "treasure":"Treasure"}
+        if game in names:
+            return await interaction.response.send_modal(BetModal(names[game]))
+        if game == "numberguess":
+            n = random.randint(1, 10)
+            return await interaction.response.send_message(f"🔢 Secret number generated! Try `/numberguess` to play.\n🎯 Hint range: **1–10**", ephemeral=True)
+        if game == "quickdraw":
+            return await interaction.response.send_message(f"🤠 **QUICK DRAW!**\n{random.choice(['⚡ You were too slow!', '💥 You won the draw!', '🎯 Perfect shot!', '💀 Moon Night was faster!'])}")
+        if game == "luckycolor":
+            return await interaction.response.send_message(f"🌈 Lucky Color: **{random.choice(['🔴 Red','⚫ Black','🟢 Green','🔵 Blue','🟣 Purple','🟡 Gold'])}**")
+
+class GamesCenterView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(GamesCenterSelect())
+
+def get_games_center_embed():
+    embed = discord.Embed(
+        title="🎮  Moon Night's Games Center  ›",
+        description=(
+            "## ✦ Play. Risk. Win. Repeat.\n\n"
+            "Choose a game from the menu below and it will launch instantly.\n\n"
+            "💰 **Bet games** accept `1k`, `1m`, `2b` and more.\n"
+            "🏆 **Moon Coins** are virtual server coins only.\n\n"
+            "### 🎰 Casino\nRoulette • Slots • Blackjack • Wheel • Double or Nothing\n\n"
+            "### 🕹️ Quick Games\nCoinflip • Dice • RPS • 8-Ball • High/Low • Even/Odd • Treasure • Quick Draw • Lucky Color\n\n"
+            "-# `© 2026 Moon Night™ • Games Center`"
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_thumbnail(url=IMAGES["moon_logo"])
+    embed.set_image(url=IMAGES["panel_banner"])
+    return embed
+
+@bot.tree.command(name="games", description="Open the Moon Night Games Center")
+async def games_center(interaction: Interaction):
+    await interaction.response.send_message(embed=get_games_center_embed(), view=GamesCenterView())
+
+@bot.tree.command(name="numberguess", description="Guess a number from 1 to 10")
+async def numberguess(interaction: Interaction, number: app_commands.Range[int, 1, 10]):
+    secret = random.randint(1, 10)
+    if number == secret:
+        return await interaction.response.send_message(f"🔢 **{secret}** — 🏆 Correct! You got it!")
+    await interaction.response.send_message(f"🔢 **{secret}** — ❌ Not this time. You chose `{number}`.")
+
+@bot.tree.command(name="quickdraw", description="Test your reflexes")
+async def quickdraw(interaction: Interaction):
+    await interaction.response.send_message(f"🤠 **QUICK DRAW!**\n{random.choice(['⚡ Lightning reflexes!', '🎯 Perfect shot!', '💀 Moon Night was faster!', '🏆 You won the draw!'])}")
+
+@bot.tree.command(name="vccenter", description="Open your temporary voice room controls")
+async def vccenter(interaction: Interaction):
+    channel = interaction.user.voice.channel if interaction.user.voice else None
+    if not isinstance(channel, discord.VoiceChannel) or channel.id not in TEMP_VCS:
+        return await interaction.response.send_message("❌ You are not inside a Moon Night temporary VC.", ephemeral=True)
+    if not can_manage_temp_vc(interaction, channel):
+        return await interaction.response.send_message("❌ Only the room owner or a server Owner/Admin can control this room.", ephemeral=True)
+    await interaction.response.send_message(embed=make_temp_vc_embed(channel), view=TempVCControlView(), ephemeral=True)
 
 
 # ==========================================
@@ -3516,24 +3744,235 @@ async def moon_leave_listener(member: discord.Member):
 
 @bot.listen("on_voice_state_update")
 async def temporary_voice_listener(member, before, after):
+    # Create one private temporary room when a member enters the creator channel.
     if TEMP_VC_CHANNEL_ID and after.channel and after.channel.id == TEMP_VC_CHANNEL_ID:
         try:
+            # Reuse an existing room owned by the member instead of creating duplicates.
+            existing_id = next((cid for cid, meta in TEMP_VC_META.items() if meta.get("owner") == member.id), None)
+            if existing_id:
+                existing = member.guild.get_channel(existing_id)
+                if isinstance(existing, discord.VoiceChannel):
+                    await member.move_to(existing, reason="Moon Night existing temporary VC")
+                    return
+
             channel = await member.guild.create_voice_channel(
-                name=f"🔊 {member.display_name}'s Room",
+                name=f"{TEMP_VC_NAME_PREFIX} {member.display_name}'s Room",
                 category=after.channel.category,
-                reason="Moon Night temporary VC"
+                user_limit=max(0, min(TEMP_VC_DEFAULT_LIMIT, 99)),
+                reason=f"Moon Night temporary VC for {member} ({member.id})"
             )
             TEMP_VCS[channel.id] = member.id
-            await member.move_to(channel)
-        except discord.HTTPException:
-            pass
+            TEMP_VC_META[channel.id] = {
+                "owner": member.id,
+                "locked": False,
+                "limit": max(0, min(TEMP_VC_DEFAULT_LIMIT, 99)),
+                "created_at": int(time.time()),
+            }
+            await member.move_to(channel, reason="Moon Night temporary VC")
+
+            # Discord supports text chat inside voice channels; send the control panel there.
+            try:
+                await channel.send(embed=make_temp_vc_embed(channel), view=TempVCControlView())
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        except discord.HTTPException as exc:
+            print(f"[TEMP VC] Create error: {exc!r}")
+
+    # Delete empty temporary rooms.
     if before.channel and before.channel.id in TEMP_VCS and len(before.channel.members) == 0:
-        TEMP_VCS.pop(before.channel.id, None)
+        channel_id = before.channel.id
+        TEMP_VCS.pop(channel_id, None)
+        TEMP_VC_META.pop(channel_id, None)
         try:
-            await before.channel.delete(reason="Empty temporary VC")
+            await before.channel.delete(reason="Moon Night temporary VC became empty")
         except discord.HTTPException:
             pass
 
+
+# ==========================================
+# 🔊 TEMPORARY VC CONTROL CENTER
+# ==========================================
+def get_temp_vc_meta(channel):
+    return TEMP_VC_META.get(getattr(channel, "id", 0))
+
+def can_manage_temp_vc(interaction, channel):
+    meta = get_temp_vc_meta(channel)
+    if not meta:
+        return False
+    return (
+        interaction.user.id == OWNER_ID
+        or interaction.user.guild_permissions.administrator
+        or interaction.user.id == meta.get("owner")
+    )
+
+def make_temp_vc_embed(channel):
+    meta = get_temp_vc_meta(channel) or {}
+    owner_id = meta.get("owner", 0)
+    owner = channel.guild.get_member(owner_id) if channel.guild else None
+    locked = meta.get("locked", False)
+    limit = meta.get("limit", 0)
+    embed = discord.Embed(
+        title="🔊 Moon Night • Private Room Control",
+        description=(
+            f"**Room:** {channel.mention}\n"
+            f"**Owner:** {owner.mention if owner else f'<@{owner_id}>'}\n"
+            f"**Status:** {'🔒 Locked' if locked else '🔓 Open'}\n"
+            f"**Limit:** {'Unlimited' if not limit else str(limit)}\n\n"
+            "Use the buttons below to manage your room.\n"
+            "👑 Room owner + server Owner/Admin can control it."
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_thumbnail(url=IMAGES["moon_logo"])
+    return embed
+
+class VCLimitModal(Modal):
+    def __init__(self, channel):
+        self.channel_id = channel.id
+        super().__init__(title="Set Voice Room Limit")
+        self.limit = TextInput(label="User limit", placeholder="0 = unlimited, max 99", max_length=2, required=True)
+        self.add_item(self.limit)
+
+    async def on_submit(self, interaction: Interaction):
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
+        try:
+            limit = int(self.limit.value)
+        except ValueError:
+            return await interaction.response.send_message("❌ Enter a number from `0` to `99`.", ephemeral=True)
+        if not 0 <= limit <= 99:
+            return await interaction.response.send_message("❌ Enter a number from `0` to `99`.", ephemeral=True)
+        await channel.edit(user_limit=limit, reason=f"Temp VC limit changed by {interaction.user}")
+        TEMP_VC_META[channel.id]["limit"] = limit
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
+
+class VCRenameModal(Modal):
+    def __init__(self, channel):
+        self.channel_id = channel.id
+        super().__init__(title="Rename Voice Room")
+        self.name = TextInput(label="Room name", placeholder="My Private Room", min_length=1, max_length=90, required=True)
+        self.add_item(self.name)
+
+    async def on_submit(self, interaction: Interaction):
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
+        await channel.edit(name=self.name.value, reason=f"Temp VC renamed by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
+
+class VCKickModal(Modal):
+    def __init__(self, channel):
+        self.channel_id = channel.id
+        super().__init__(title="Remove Member From Room")
+        self.member_id = TextInput(label="Member ID", placeholder="Discord user ID", max_length=25, required=True)
+        self.add_item(self.member_id)
+
+    async def on_submit(self, interaction: Interaction):
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
+        try:
+            uid = int(self.member_id.value.strip())
+        except ValueError:
+            return await interaction.response.send_message("❌ Invalid Discord user ID.", ephemeral=True)
+        member = interaction.guild.get_member(uid)
+        if not member or member.voice is None or member.voice.channel != channel:
+            return await interaction.response.send_message("❌ That member is not in this room.", ephemeral=True)
+        meta = get_temp_vc_meta(channel) or {}
+        if uid == meta.get("owner") and uid != interaction.user.id and interaction.user.id != OWNER_ID and not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ The room owner cannot be removed by another member.", ephemeral=True)
+        await member.move_to(None, reason=f"Removed from temp VC by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
+
+class VCMoveModal(Modal):
+    def __init__(self, channel):
+        self.channel_id = channel.id
+        super().__init__(title="Move Member Into Room")
+        self.member_id = TextInput(label="Member ID", placeholder="Discord user ID", max_length=25, required=True)
+        self.add_item(self.member_id)
+
+    async def on_submit(self, interaction: Interaction):
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
+        try:
+            uid = int(self.member_id.value.strip())
+        except ValueError:
+            return await interaction.response.send_message("❌ Invalid Discord user ID.", ephemeral=True)
+        member = interaction.guild.get_member(uid)
+        if not member:
+            return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
+        limit = get_temp_vc_meta(channel).get("limit", 0)
+        if limit and len(channel.members) >= limit and member.voice and member.voice.channel != channel:
+            return await interaction.response.send_message("❌ This room is full.", ephemeral=True)
+        await member.move_to(channel, reason=f"Moved into temp VC by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
+
+class TempVCControlView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _check(self, interaction):
+        channel = interaction.channel
+        if not isinstance(channel, discord.VoiceChannel) or channel.id not in TEMP_VC_META:
+            await interaction.response.send_message("❌ This is not an active Moon Night temporary room.", ephemeral=True)
+            return None
+        if not can_manage_temp_vc(interaction, channel):
+            await interaction.response.send_message("❌ Only the room owner or a server Owner/Admin can control this room.", ephemeral=True)
+            return None
+        return channel
+
+    @discord.ui.button(label="Lock", emoji="🔒", style=ButtonStyle.secondary, custom_id="tempvc_lock")
+    async def lock(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if not channel: return
+        meta = TEMP_VC_META[channel.id]
+        meta["locked"] = True
+        everyone = channel.guild.default_role
+        owner = channel.guild.get_member(meta["owner"])
+        await channel.set_permissions(everyone, connect=False, reason=f"Temp VC locked by {interaction.user}")
+        if owner:
+            await channel.set_permissions(owner, connect=True, reason="Keep room owner connected")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=self)
+
+    @discord.ui.button(label="Unlock", emoji="🔓", style=ButtonStyle.success, custom_id="tempvc_unlock")
+    async def unlock(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if not channel: return
+        TEMP_VC_META[channel.id]["locked"] = False
+        await channel.set_permissions(channel.guild.default_role, connect=None, reason=f"Temp VC unlocked by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=self)
+
+    @discord.ui.button(label="Limit", emoji="👥", style=ButtonStyle.primary, custom_id="tempvc_limit")
+    async def limit(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCLimitModal(channel))
+
+    @discord.ui.button(label="Rename", emoji="✏️", style=ButtonStyle.primary, custom_id="tempvc_rename")
+    async def rename(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCRenameModal(channel))
+
+    @discord.ui.button(label="Kick", emoji="👢", style=ButtonStyle.danger, custom_id="tempvc_kick")
+    async def kick(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCKickModal(channel))
+
+    @discord.ui.button(label="Move", emoji="↪️", style=ButtonStyle.secondary, custom_id="tempvc_move")
+    async def move(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCMoveModal(channel))
+
+    @discord.ui.button(label="Close Room", emoji="🗑️", style=ButtonStyle.danger, custom_id="tempvc_close")
+    async def close(self, interaction: Interaction, button: Button):
+        channel = await self._check(interaction)
+        if not channel: return
+        channel_id = channel.id
+        TEMP_VCS.pop(channel_id, None)
+        TEMP_VC_META.pop(channel_id, None)
+        await channel.delete(reason=f"Temp VC closed by {interaction.user}")
+        await interaction.response.send_message("🗑️ Temporary room closed.", ephemeral=True)
 
 # ==========================================
 # 🔊 VOICE ACTIVITY LOGS
@@ -3581,7 +4020,8 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     app_commands.Choice(name="Booster Perks Roles", value="boosters"),
     app_commands.Choice(name="Self Roles", value="selfroles"),
     app_commands.Choice(name="Role Request Panel", value="rolerequest"),
-    app_commands.Choice(name="Tweets System", value="tweets")
+    app_commands.Choice(name="Tweets System", value="tweets"),
+    app_commands.Choice(name="Games Center", value="games")
 ])
 @is_owner_or_admin()
 async def send_panel(interaction: Interaction, panel: str):
@@ -3607,6 +4047,8 @@ async def send_panel(interaction: Interaction, panel: str):
         await interaction.channel.send(embed=get_role_request_embed(), view=RoleRequestView())
     elif panel == "tweets":
         await interaction.channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
+    elif panel == "games":
+        await interaction.channel.send(embed=get_games_center_embed(), view=GamesCenterView())
 
     await interaction.followup.send(f"✅ Embed **{panel}** sent successfully!", ephemeral=True)
 
