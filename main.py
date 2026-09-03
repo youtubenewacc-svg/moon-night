@@ -239,6 +239,49 @@ FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max
 # 🎨 Embed color — change this HEX if you want another theme color.
 EMBED_COLOR = 0x2b2d31
 
+# 🧾 AUDIT / SERVER LOG ROOMS
+# Put one or more channel IDs here, separated by commas.
+# Example: "123456789012345678,987654321098765432"
+AUDIT_LOG_CHANNEL_IDS = [
+    int(x.strip())
+    for x in os.getenv("AUDIT_LOG_CHANNEL_IDS", str(LOG_CHANNEL_ID)).split(",")
+    if x.strip().isdigit() and int(x.strip()) > 0
+]
+
+# How far back we search Discord Audit Logs to match the action with its actor.
+AUDIT_MATCH_SECONDS = 20
+
+# 🧾 Log appearance / emoji — easy to customize from this section.
+LOG_EMOJIS = {
+    "member_join": "📥",
+    "member_leave": "📤",
+    "kick": "👢",
+    "ban": "🔨",
+    "unban": "🔓",
+    "timeout": "⏱️",
+    "role_add": "➕",
+    "role_remove": "➖",
+    "role_create": "🎭",
+    "role_delete": "🗑️",
+    "role_update": "✏️",
+    "channel_create": "📁",
+    "channel_delete": "🗑️",
+    "channel_update": "📝",
+    "thread_create": "🧵",
+    "thread_delete": "🗑️",
+    "thread_update": "📝",
+    "message_delete": "🗑️",
+    "message_bulk_delete": "🧹",
+    "message_edit": "✏️",
+    "invite_create": "🔗",
+    "invite_delete": "🔗",
+    "emoji_update": "😀",
+    "sticker_update": "🏷️",
+    "server_update": "⚙️",
+    "voice": "🔊",
+    "other": "📌",
+}
+
 def channel_mention(name: str) -> str:
     channel_id = CHANNEL_IDS.get(name, 0)
     return f"<#{channel_id}>" if channel_id else "#not-configured"
@@ -1115,6 +1158,627 @@ async def invite(interaction: Interaction):
         ephemeral=True
     )
 
+
+# ==========================================
+# 🧾 MOON NIGHT — FULL SERVER LOGGING SYSTEM
+# ==========================================
+# Logs are sent to every channel listed in AUDIT_LOG_CHANNEL_IDS.
+# Discord Audit Logs are used whenever possible so the embed shows:
+# 👤 who did it | 🎯 who/what was affected | 📍 exact channel | 📝 reason | ⏰ time
+# Some Discord events (for example a deleted message) do not expose the
+# moderator who deleted it through the Gateway event, so those are marked
+# as "Unknown / Discord did not expose actor" unless an audit entry matches.
+
+AUDIT_LAST_SEEN = {}
+INVITE_CACHE = {}
+
+
+def _log_channel_targets(guild: discord.Guild):
+    if not guild:
+        return []
+    targets = []
+    for channel_id in AUDIT_LOG_CHANNEL_IDS:
+        channel = guild.get_channel(channel_id)
+        if channel and hasattr(channel, "send"):
+            targets.append(channel)
+    return targets
+
+
+def _audit_action(name: str):
+    return getattr(discord.AuditLogAction, name, None)
+
+
+def _entry_target_id(entry):
+    target = getattr(entry, "target", None)
+    return getattr(target, "id", None)
+
+
+async def _find_audit_entry(guild: discord.Guild, action_name: str, target_id=None):
+    """Find the newest matching Audit Log entry for an event."""
+    if not guild:
+        return None
+    action = _audit_action(action_name)
+    if action is None:
+        return None
+    now = datetime.now(timezone.utc)
+    try:
+        async for entry in guild.audit_logs(limit=12, action=action):
+            created_at = getattr(entry, "created_at", None)
+            if created_at and (now - created_at).total_seconds() > AUDIT_MATCH_SECONDS:
+                break
+            if target_id is not None and _entry_target_id(entry) != target_id:
+                continue
+            # Avoid returning the same entry twice after reconnects.
+            cache_key = (guild.id, entry.id)
+            if cache_key in AUDIT_LAST_SEEN:
+                continue
+            AUDIT_LAST_SEEN[cache_key] = time.time()
+            return entry
+    except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+        return None
+    except Exception as exc:
+        print(f"[AUDIT LOG] Could not read audit logs: {exc!r}")
+    return None
+
+
+def _actor_text(entry):
+    if not entry or not getattr(entry, "user", None):
+        return "❔ **Unknown / Discord did not expose actor**"
+    actor = entry.user
+    return f"{actor.mention} (`{actor.id}`)"
+
+
+def _target_text(target):
+    if target is None:
+        return "`Unknown`"
+    name = getattr(target, "name", None) or getattr(target, "display_name", None) or str(target)
+    target_id = getattr(target, "id", None)
+    if target_id:
+        return f"**{name}** (`{target_id}`)"
+    return f"**{name}**"
+
+
+def _channel_text(channel):
+    if channel is None:
+        return "`Unknown channel`"
+    channel_id = getattr(channel, "id", None)
+    name = getattr(channel, "name", None) or str(channel)
+    return f"{channel.mention if hasattr(channel, 'mention') else '#' + name} (`{channel_id}`)"
+
+
+def _reason(entry, fallback="No reason provided"):
+    reason = getattr(entry, "reason", None) if entry else None
+    return str(reason) if reason else fallback
+
+
+def _changes_text(entry):
+    if not entry:
+        return "`No audit changes available`"
+    changes = []
+    try:
+        for change in entry.changes:
+            key = getattr(change, "key", "unknown")
+            before = getattr(change, "before", None)
+            after = getattr(change, "after", None)
+            before_text = str(before)[:300]
+            after_text = str(after)[:300]
+            changes.append(f"**{key}:** `{before_text}` → `{after_text}`")
+    except Exception:
+        pass
+    return "\n".join(changes[:8]) if changes else "`No audit changes available`"
+
+
+async def send_audit_log(
+    guild: discord.Guild,
+    *,
+    title: str,
+    emoji: str = "📌",
+    description: str = "",
+    actor=None,
+    target=None,
+    channel=None,
+    entry=None,
+    color=None,
+    extra_fields=None,
+):
+    """Send one clean, consistent audit embed to all configured log rooms."""
+    if not guild or not AUDIT_LOG_CHANNEL_IDS:
+        return
+
+    if actor is None and entry is not None:
+        actor = getattr(entry, "user", None)
+
+    embed = discord.Embed(
+        title=f"{emoji} {title}",
+        description=description or "Moon Night server activity detected.",
+        color=color or EMBED_COLOR,
+        timestamp=datetime.now(timezone.utc),
+    )
+    if actor is not None:
+        actor_mention = getattr(actor, "mention", None) or f"<@{getattr(actor, 'id', 0)}>"
+        embed.add_field(
+            name="👤 Actor",
+            value=f"{actor_mention}\n`{getattr(actor, 'id', 'Unknown')}`",
+            inline=True,
+        )
+        avatar = getattr(getattr(actor, "display_avatar", None), "url", None)
+        if avatar:
+            embed.set_thumbnail(url=avatar)
+    elif entry:
+        embed.add_field(name="👤 Actor", value=_actor_text(entry), inline=True)
+
+    if target is not None:
+        embed.add_field(name="🎯 Target", value=_target_text(target), inline=True)
+    if channel is not None:
+        embed.add_field(name="📍 Channel / Room", value=_channel_text(channel), inline=False)
+    if entry is not None:
+        embed.add_field(name="📝 Reason", value=_reason(entry), inline=False)
+        changes = _changes_text(entry)
+        if changes != "`No audit changes available`":
+            embed.add_field(name="🔧 Changes", value=changes[:1024], inline=False)
+
+    if extra_fields:
+        for name, value, inline in extra_fields:
+            embed.add_field(name=name, value=str(value)[:1024], inline=inline)
+
+    guild_icon = guild.icon.url if guild.icon else None
+    embed.set_footer(text=f"Moon Night • {guild.name} • Server Audit", icon_url=guild_icon)
+
+    for log_channel in _log_channel_targets(guild):
+        # Never let a broken logging room crash the bot.
+        try:
+            await log_channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        except Exception as exc:
+            print(f"[AUDIT LOG] Send error in #{getattr(log_channel, 'name', '?')}: {exc!r}")
+
+
+async def refresh_invite_cache(guild: discord.Guild):
+    """Cache invite use counts so member joins can show the exact invite link."""
+    try:
+        invites = await guild.invites()
+    except (discord.Forbidden, discord.HTTPException):
+        return
+    INVITE_CACHE[guild.id] = {
+        inv.code: {
+            "uses": inv.uses or 0,
+            "inviter_id": getattr(inv.inviter, "id", None),
+            "url": str(inv),
+            "channel_id": getattr(inv.channel, "id", None),
+        }
+        for inv in invites
+    }
+
+
+async def detect_used_invite(member: discord.Member):
+    """Return the invite that gained a use for this member join, if Discord exposes it."""
+    guild = member.guild
+    before = INVITE_CACHE.get(guild.id, {})
+    try:
+        invites = await guild.invites()
+    except (discord.Forbidden, discord.HTTPException):
+        return None
+
+    used = None
+    fresh = {}
+    for inv in invites:
+        uses = inv.uses or 0
+        fresh[inv.code] = {
+            "uses": uses,
+            "inviter_id": getattr(inv.inviter, "id", None),
+            "url": str(inv),
+            "channel_id": getattr(inv.channel, "id", None),
+        }
+        old = before.get(inv.code, {}).get("uses", 0)
+        if uses > old and used is None:
+            used = inv
+    INVITE_CACHE[guild.id] = fresh
+    return used
+
+
+# ==========================================
+# 👥 MEMBER LOGS
+# ==========================================
+@bot.listen("on_member_join")
+async def audit_member_join(member: discord.Member):
+    invite = await detect_used_invite(member)
+    extra = []
+    if invite:
+        inviter = invite.inviter
+        extra.append(("🔗 Invite Used", f"`{invite.code}` — {invite.url}", False))
+        extra.append(("🤝 Invited By", f"{inviter.mention if inviter else 'Unknown'} (`{getattr(inviter, 'id', 'Unknown')}`)", True))
+        extra.append(("📍 Join Channel", _channel_text(invite.channel), True))
+    else:
+        extra.append(("🔗 Invite Used", "`Unknown / vanity / invite cache unavailable`", False))
+    await send_audit_log(
+        member.guild,
+        title="Member Joined",
+        emoji=LOG_EMOJIS["member_join"],
+        target=member,
+        extra_fields=extra,
+    )
+
+
+@bot.listen("on_member_remove")
+async def audit_member_remove(member: discord.Member):
+    entry = await _find_audit_entry(member.guild, "member_kick", member.id)
+    if entry:
+        await send_audit_log(
+            member.guild,
+            title="Member Kicked",
+            emoji=LOG_EMOJIS["kick"],
+            target=member,
+            entry=entry,
+            extra_fields=[("📍 Last Known Room", "`Discord did not provide a reliable room for a kick event.`", False)],
+        )
+    else:
+        await send_audit_log(
+            member.guild,
+            title="Member Left",
+            emoji=LOG_EMOJIS["member_leave"],
+            target=member,
+        )
+
+
+@bot.listen("on_member_ban")
+async def audit_member_ban(guild: discord.Guild, user: discord.User):
+    entry = await _find_audit_entry(guild, "member_ban", user.id)
+    await send_audit_log(
+        guild,
+        title="Member Banned",
+        emoji=LOG_EMOJIS["ban"],
+        target=user,
+        entry=entry,
+    )
+
+
+@bot.listen("on_member_unban")
+async def audit_member_unban(guild: discord.Guild, user: discord.User):
+    entry = await _find_audit_entry(guild, "member_unban", user.id)
+    await send_audit_log(
+        guild,
+        title="Member Unbanned",
+        emoji=LOG_EMOJIS["unban"],
+        target=user,
+        entry=entry,
+    )
+
+
+@bot.listen("on_member_update")
+async def audit_member_update(before: discord.Member, after: discord.Member):
+    if before.guild is None:
+        return
+
+    # 🎭 Roles added / removed — exact role names and IDs.
+    before_roles = {r.id: r for r in before.roles if r.is_default() is False}
+    after_roles = {r.id: r for r in after.roles if r.is_default() is False}
+    added = [after_roles[rid] for rid in after_roles.keys() - before_roles.keys()]
+    removed = [before_roles[rid] for rid in before_roles.keys() - after_roles.keys()]
+
+    if added or removed:
+        entry = await _find_audit_entry(before.guild, "member_role_update", before.id)
+        fields = []
+        if added:
+            fields.append(("➕ Roles Added", "\n".join(f"{r.mention} — `{r.id}`" for r in added), False))
+        if removed:
+            fields.append(("➖ Roles Removed", "\n".join(f"{r.name} — `{r.id}`" for r in removed), False))
+        await send_audit_log(
+            before.guild,
+            title="Member Roles Changed",
+            emoji="🎭",
+            target=after,
+            entry=entry,
+            extra_fields=fields,
+        )
+
+    # 👤 Nickname / timeout / profile changes.
+    changes = []
+    if before.nick != after.nick:
+        changes.append(("🏷️ Nickname", f"`{before.nick or 'None'}` → `{after.nick or 'None'}`", True))
+    if before.communication_disabled_until != after.communication_disabled_until:
+        old = before.communication_disabled_until
+        new = after.communication_disabled_until
+        changes.append(("⏱️ Timeout", f"`{old or 'None'}` → `{new or 'None'}`", False))
+
+    if changes:
+        entry = await _find_audit_entry(before.guild, "member_update", before.id)
+        await send_audit_log(
+            before.guild,
+            title="Member Updated",
+            emoji="👤",
+            target=after,
+            entry=entry,
+            extra_fields=changes,
+        )
+
+
+# ==========================================
+# 🎭 ROLE LOGS
+# ==========================================
+@bot.listen("on_guild_role_create")
+async def audit_role_create(role: discord.Role):
+    entry = await _find_audit_entry(role.guild, "role_create", role.id)
+    await send_audit_log(
+        role.guild,
+        title="Role Created",
+        emoji=LOG_EMOJIS["role_create"],
+        target=role,
+        entry=entry,
+    )
+
+
+@bot.listen("on_guild_role_delete")
+async def audit_role_delete(role: discord.Role):
+    entry = await _find_audit_entry(role.guild, "role_delete", role.id)
+    await send_audit_log(
+        role.guild,
+        title="Role Deleted",
+        emoji=LOG_EMOJIS["role_delete"],
+        target=role,
+        entry=entry,
+    )
+
+
+@bot.listen("on_guild_role_update")
+async def audit_role_update(before: discord.Role, after: discord.Role):
+    changed = []
+    if before.name != after.name:
+        changed.append(("🏷️ Name", f"`{before.name}` → `{after.name}`", True))
+    if before.permissions != after.permissions:
+        changed.append(("🔐 Permissions", "`Role permissions changed`", True))
+    if before.color != after.color:
+        changed.append(("🎨 Color", f"`{before.color}` → `{after.color}`", True))
+    if before.hoist != after.hoist:
+        changed.append(("📌 Hoisted", f"`{before.hoist}` → `{after.hoist}`", True))
+    if before.mentionable != after.mentionable:
+        changed.append(("📣 Mentionable", f"`{before.mentionable}` → `{after.mentionable}`", True))
+    if changed:
+        entry = await _find_audit_entry(after.guild, "role_update", after.id)
+        await send_audit_log(
+            after.guild,
+            title="Role Updated",
+            emoji=LOG_EMOJIS["role_update"],
+            target=after,
+            entry=entry,
+            extra_fields=changed,
+        )
+
+
+# ==========================================
+# 📁 CHANNEL / THREAD LOGS
+# ==========================================
+@bot.listen("on_guild_channel_create")
+async def audit_channel_create(channel: discord.abc.GuildChannel):
+    entry = await _find_audit_entry(channel.guild, "channel_create", channel.id)
+    await send_audit_log(
+        channel.guild,
+        title="Channel Created",
+        emoji=LOG_EMOJIS["channel_create"],
+        target=channel,
+        channel=channel,
+        entry=entry,
+    )
+
+
+@bot.listen("on_guild_channel_delete")
+async def audit_channel_delete(channel: discord.abc.GuildChannel):
+    entry = await _find_audit_entry(channel.guild, "channel_delete", channel.id)
+    await send_audit_log(
+        channel.guild,
+        title="Channel Deleted",
+        emoji=LOG_EMOJIS["channel_delete"],
+        target=channel,
+        channel=channel,
+        entry=entry,
+    )
+
+
+@bot.listen("on_guild_channel_update")
+async def audit_channel_update(before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
+    changed = []
+    if getattr(before, "name", None) != getattr(after, "name", None):
+        changed.append(("🏷️ Name", f"`{getattr(before, 'name', '?')}` → `{getattr(after, 'name', '?')}`", True))
+    if getattr(before, "category_id", None) != getattr(after, "category_id", None):
+        changed.append(("📂 Category", f"`{getattr(before, 'category_id', None)}` → `{getattr(after, 'category_id', None)}`", True))
+    if getattr(before, "position", None) != getattr(after, "position", None):
+        changed.append(("↕️ Position", f"`{getattr(before, 'position', '?')}` → `{getattr(after, 'position', '?')}`", True))
+    if getattr(before, "topic", None) != getattr(after, "topic", None):
+        changed.append(("📝 Topic", "`Channel topic changed`", False))
+    if getattr(before, "slowmode_delay", None) != getattr(after, "slowmode_delay", None):
+        changed.append(("🐌 Slowmode", f"`{getattr(before, 'slowmode_delay', 0)}` → `{getattr(after, 'slowmode_delay', 0)}`", True))
+    if changed:
+        entry = await _find_audit_entry(after.guild, "channel_update", after.id)
+        await send_audit_log(
+            after.guild,
+            title="Channel Updated",
+            emoji=LOG_EMOJIS["channel_update"],
+            target=after,
+            channel=after,
+            entry=entry,
+            extra_fields=changed,
+        )
+
+
+@bot.listen("on_thread_create")
+async def audit_thread_create(thread: discord.Thread):
+    entry = await _find_audit_entry(thread.guild, "thread_create", thread.id)
+    await send_audit_log(thread.guild, title="Thread Created", emoji=LOG_EMOJIS["thread_create"], target=thread, channel=thread, entry=entry)
+
+
+@bot.listen("on_thread_delete")
+async def audit_thread_delete(thread: discord.Thread):
+    entry = await _find_audit_entry(thread.guild, "thread_delete", thread.id)
+    await send_audit_log(thread.guild, title="Thread Deleted", emoji=LOG_EMOJIS["thread_delete"], target=thread, channel=thread, entry=entry)
+
+
+@bot.listen("on_thread_update")
+async def audit_thread_update(before: discord.Thread, after: discord.Thread):
+    if before.name != after.name or before.archived != after.archived or before.locked != after.locked:
+        entry = await _find_audit_entry(after.guild, "thread_update", after.id)
+        await send_audit_log(
+            after.guild,
+            title="Thread Updated",
+            emoji=LOG_EMOJIS["thread_update"],
+            target=after,
+            channel=after,
+            entry=entry,
+            extra_fields=[("🔧 Changes", f"`{before.name}` → `{after.name}` | archived `{before.archived}` → `{after.archived}` | locked `{before.locked}` → `{after.locked}`", False)],
+        )
+
+
+# ==========================================
+# 💬 MESSAGE LOGS
+# ==========================================
+@bot.listen("on_raw_message_delete")
+async def audit_message_delete(payload: discord.RawMessageDeleteEvent):
+    channel = bot.get_channel(payload.channel_id)
+    entry = None
+    if channel and getattr(channel, "guild", None):
+        entry = await _find_audit_entry(channel.guild, "message_delete", getattr(payload, "message_id", None))
+        await send_audit_log(
+            channel.guild,
+            title="Message Deleted",
+            emoji=LOG_EMOJIS["message_delete"],
+            channel=channel,
+            entry=entry,
+            extra_fields=[("🆔 Message ID", f"`{payload.message_id}`", True), ("⚠️ Note", "The deleted message content may be unavailable because Discord did not send it with this event.", False)],
+        )
+
+
+@bot.listen("on_raw_bulk_message_delete")
+async def audit_bulk_message_delete(payload: discord.RawBulkMessageDeleteEvent):
+    channel = bot.get_channel(payload.channel_id)
+    if channel and getattr(channel, "guild", None):
+        await send_audit_log(
+            channel.guild,
+            title="Bulk Messages Deleted",
+            emoji=LOG_EMOJIS["message_bulk_delete"],
+            channel=channel,
+            extra_fields=[("🧹 Messages", f"`{len(payload.message_ids)}` messages deleted", False)],
+        )
+
+
+@bot.listen("on_raw_message_edit")
+async def audit_message_edit(payload: discord.RawMessageUpdateEvent):
+    channel = bot.get_channel(payload.channel_id)
+    if not channel or not getattr(channel, "guild", None):
+        return
+    # Ignore edits generated by the bot itself to keep the audit room clean.
+    author_id = None
+    data = getattr(payload, "data", {}) or {}
+    author = data.get("author") or {}
+    author_id = author.get("id")
+    if author_id and bot.user and int(author_id) == bot.user.id:
+        return
+    before_content = getattr(payload.cached_message, "content", None) if getattr(payload, "cached_message", None) else None
+    after_content = data.get("content")
+    if before_content is not None and after_content is not None and before_content == after_content:
+        return
+    await send_audit_log(
+        channel.guild,
+        title="Message Edited",
+        emoji=LOG_EMOJIS["message_edit"],
+        channel=channel,
+        extra_fields=[
+            ("🆔 Message ID", f"`{payload.message_id}`", True),
+            ("👤 Author", f"<@{author_id}> (`{author_id}`)" if author_id else "`Unknown`", True),
+            ("✏️ Before", f"```{str(before_content)[:900] if before_content is not None else 'Content unavailable'}```", False),
+            ("📝 After", f"```{str(after_content)[:900] if after_content is not None else 'Content unavailable'}```", False),
+        ],
+    )
+
+
+# ==========================================
+# 🔗 INVITE LOGS
+# ==========================================
+@bot.listen("on_invite_create")
+async def audit_invite_create(invite: discord.Invite):
+    if not invite.guild:
+        return
+    await send_audit_log(
+        invite.guild,
+        title="Invite Created",
+        emoji=LOG_EMOJIS["invite_create"],
+        actor=invite.inviter,
+        target=invite,
+        channel=invite.channel,
+        extra_fields=[("🔗 Invite", f"`{invite.code}` — {invite}", False), ("🔢 Max Uses", f"`{invite.max_uses or 'Unlimited'}`", True)],
+    )
+    await refresh_invite_cache(invite.guild)
+
+
+@bot.listen("on_invite_delete")
+async def audit_invite_delete(invite: discord.Invite):
+    if invite.guild:
+        entry = await _find_audit_entry(invite.guild, "invite_delete", None)
+        await send_audit_log(
+            invite.guild,
+            title="Invite Deleted",
+            emoji=LOG_EMOJIS["invite_delete"],
+            target=invite,
+            channel=invite.channel,
+            entry=entry,
+            extra_fields=[("🔗 Invite", f"`{invite.code}`", False)],
+        )
+        await refresh_invite_cache(invite.guild)
+
+
+# ==========================================
+# 😀 EMOJI / STICKER / SERVER LOGS
+# ==========================================
+@bot.listen("on_guild_emojis_update")
+async def audit_emojis_update(guild: discord.Guild, before, after):
+    before_map = {e.id: e for e in before}
+    after_map = {e.id: e for e in after}
+    added = [after_map[x] for x in after_map.keys() - before_map.keys()]
+    removed = [before_map[x] for x in before_map.keys() - after_map.keys()]
+    changed = [after_map[x] for x in after_map.keys() & before_map.keys() if before_map[x].name != after_map[x].name]
+    if added or removed or changed:
+        entry = None
+        for action_name in ("emoji_create", "emoji_delete", "emoji_update"):
+            entry = await _find_audit_entry(guild, action_name)
+            if entry:
+                break
+        fields = []
+        if added:
+            fields.append(("➕ Added", " ".join(str(e) for e in added), False))
+        if removed:
+            fields.append(("➖ Removed", " ".join(str(e) for e in removed), False))
+        if changed:
+            fields.append(("✏️ Renamed", ", ".join(f"`{before_map[e.id].name}` → `{e.name}`" for e in changed), False))
+        await send_audit_log(guild, title="Server Emojis Updated", emoji=LOG_EMOJIS["emoji_update"], entry=entry, extra_fields=fields)
+
+
+@bot.listen("on_guild_stickers_update")
+async def audit_stickers_update(guild: discord.Guild, before, after):
+    before_ids = {s.id for s in before}
+    after_ids = {s.id for s in after}
+    if before_ids != after_ids:
+        entry = await _find_audit_entry(guild, "sticker_create") or await _find_audit_entry(guild, "sticker_delete")
+        await send_audit_log(
+            guild,
+            title="Server Stickers Updated",
+            emoji=LOG_EMOJIS["sticker_update"],
+            entry=entry,
+            extra_fields=[("🔧 Changes", f"Before: `{len(before_ids)}` • After: `{len(after_ids)}`", False)],
+        )
+
+
+@bot.listen("on_guild_update")
+async def audit_guild_update(before: discord.Guild, after: discord.Guild):
+    changed = []
+    for attr, label in (("name", "🏷️ Name"), ("description", "📝 Description"), ("verification_level", "🛡️ Verification"), ("default_notifications", "🔔 Notifications"), ("afk_timeout", "💤 AFK Timeout")):
+        if getattr(before, attr, None) != getattr(after, attr, None):
+            changed.append((label, f"`{getattr(before, attr, None)}` → `{getattr(after, attr, None)}`", True))
+    if changed:
+        entry = await _find_audit_entry(after, "guild_update", after.id)
+        await send_audit_log(after, title="Server Updated", emoji=LOG_EMOJIS["server_update"], entry=entry, extra_fields=changed)
+
+
+# ==========================================
+# 🧾 END FULL SERVER LOGGING SYSTEM
+# ==========================================
 
 # ==========================================
 # MEMBER / SERVER PEAK TRACKING
@@ -2533,6 +3197,7 @@ async def send_panel(interaction: Interaction, panel: str):
 async def on_ready():
     for guild in bot.guilds:
         update_peak_members(guild)
+        await refresh_invite_cache(guild)
     print(f"Logged in as {bot.user.name} ({bot.user.id})")
 
 if not BOT_TOKEN:
