@@ -1024,115 +1024,126 @@ def _rounded_avatar(base, avatar, box):
     base.paste(avatar, (box[0], box[1]), mask)
 
 async def create_tweet_image(member: discord.Member, text: str, theme: str):
-    """Create a polished Twitter/X-style image card with a themed background."""
+    """Create the COMPLETE published tweet as one polished image.
+
+    The Discord post intentionally contains NO embed card. Discord only receives
+    the user's mention + this PNG, so the tweet itself looks like a designed
+    social-media post instead of a plain Discord embed.
+    """
     if not PIL_OK:
         return None
 
     dark = theme == "dark"
-    W, H = TWEET_WIDTH, TWEET_HEIGHT
-    image = Image.new("RGBA", (W, H), (0, 0, 0, 255))
-    px = image.load()
-
-    # Smooth diagonal gradient background: dark black/purple or clean white/silver.
-    if dark:
-        top = (8, 8, 12)
-        bottom = (30, 24, 44)
-        glow = (93, 72, 150)
-    else:
-        top = (255, 255, 255)
-        bottom = (226, 229, 236)
-        glow = (185, 191, 205)
-
-    for y in range(H):
-        t = y / max(1, H - 1)
-        r = int(top[0] * (1 - t) + bottom[0] * t)
-        g = int(top[1] * (1 - t) + bottom[1] * t)
-        b = int(top[2] * (1 - t) + bottom[2] * t)
-        for x in range(W):
-            px[x, y] = (r, g, b, 255)
-
+    W, H = 1400, 900
+    image = Image.new("RGBA", (W, H), (8, 9, 13, 255))
     draw = ImageDraw.Draw(image, "RGBA")
 
-    # Decorative soft circles / lines in the background.
-    draw.ellipse((W - 330, -120, W + 80, 290), fill=(*glow, 30 if dark else 22))
-    draw.ellipse((-180, H - 260, 260, H + 180), fill=(*glow, 24 if dark else 18))
-    draw.rounded_rectangle((28, 28, W - 28, H - 28), radius=42,
-                           outline=(*glow, 55 if dark else 45), width=2)
+    # Premium background gradient.
+    top = (7, 9, 18) if dark else (246, 248, 252)
+    bottom = (27, 16, 40) if dark else (221, 228, 240)
+    for y in range(H):
+        t = y / (H - 1)
+        c = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
+        draw.line((0, y, W, y), fill=(*c, 255))
 
-    # Main card with a subtle border.
-    margin = 62
-    card = (13, 14, 17, 238) if dark else (255, 255, 255, 245)
-    border = (70, 70, 78, 210) if dark else (205, 208, 216, 220)
-    draw.rounded_rectangle((margin, margin, W - margin, H - margin), radius=38, fill=card, outline=border, width=2)
+    # Ambient glows / stars.
+    glow = (128, 103, 255) if dark else (71, 126, 235)
+    for cx, cy, r, a in [(1180, 120, 310, 22), (220, 760, 260, 18), (700, 420, 420, 9)]:
+        draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=(*glow, a))
+    for x, y, r in [(75,90,3),(155,210,2),(260,120,3),(380,70,2),(520,180,3),
+                    (720,105,2),(865,190,3),(1010,70,2),(1240,250,3),(1320,120,2),
+                    (1140,610,2),(90,690,2),(260,790,3)]:
+        draw.ellipse((x-r,y-r,x+r,y+r), fill=(255,255,255,150))
 
+    # Decorative moon on the right.
+    moon_x, moon_y, moon_r = 1180, 120, 82
+    draw.ellipse((moon_x-moon_r, moon_y-moon_r, moon_x+moon_r, moon_y+moon_r),
+                 fill=(247,244,229,245))
+    draw.ellipse((moon_x-52, moon_y-94, moon_x+112, moon_y+70), fill=(*top,255))
+
+    # Header / branding.
+    logo = await _load_remote_image(IMAGES.get("moon_logo"))
+    if logo is not None:
+        logo.thumbnail((78, 78), Image.Resampling.LANCZOS)
+        image.alpha_composite(logo, (70, 58))
+
+    title_font = _font(38, True)
+    small_font = _font(20, False)
+    name_font = _font(31, True)
+    user_font = _font(21, False)
+    body_font = _font(43, False)
+    time_font = _font(21, False)
+    footer_font = _font(19, True)
+
+    primary = (250,250,253,255) if dark else (25,27,34,255)
+    secondary = (174,177,190,255) if dark else (91,97,110,255)
+    panel = (12,13,19,238) if dark else (255,255,255,242)
+    border = (86,82,103,170) if dark else (202,208,220,220)
+
+    draw.text((170, 61), "Moon Night", font=title_font, fill=primary)
+    draw.text((172, 108), "COMMUNITY TWEET", font=small_font, fill=secondary)
+
+    # Main social card.
+    card = (55, 245, W-55, H-65)
+    draw.rounded_rectangle(card, radius=42, fill=panel, outline=border, width=2)
+
+    # Theme pill.
+    pill_text = "DARK TWEET" if dark else "LIGHT TWEET"
+    pill_w = 190
+    draw.rounded_rectangle((W-55-pill_w-28, 274, W-83, 320), radius=23,
+                           fill=(*glow, 55), outline=(*glow, 150), width=1)
+    draw.text((W-55-pill_w-10, 285), pill_text, font=footer_font, fill=primary)
+
+    # Avatar.
     avatar = await _load_remote_image(member.display_avatar.url)
-    _rounded_avatar(image, avatar, (105, 105, 205, 205))
-    # Avatar ring.
-    draw.ellipse((101, 101, 209, 209), outline=(*glow, 220), width=4)
+    _rounded_avatar(image, avatar, (95, 295, 177, 377))
+    draw.ellipse((91, 291, 181, 381), outline=(*glow, 230), width=4)
 
-    bold_46 = _font(46, True)
-    regular_34 = _font(34, False)
-    regular_28 = _font(28, False)
-    bold_26 = _font(26, True)
-    bold_24 = _font(24, True)
-
-    name = str(member.display_name)[:26]
+    name = str(member.display_name)[:28]
     username = f"@{member.name}"[:32]
-    primary = (248, 248, 250, 255) if dark else (20, 22, 27, 255)
-    secondary = (168, 168, 177, 255) if dark else (92, 96, 106, 255)
-    accent = (132, 112, 190, 255) if dark else (85, 89, 98, 255)
+    draw.text((205, 294), name, font=name_font, fill=primary)
+    draw.text((207, 338), username, font=user_font, fill=secondary)
 
-    draw.text((235, 105), name, font=bold_46, fill=primary)
-    draw.text((235, 162), username, font=regular_28, fill=secondary)
-
-    # Small verified-style badge next to the display name.
+    # Verified-style Moon Night badge.
     try:
-        name_box = draw.textbbox((235, 105), name, font=bold_46)
-        bx = min(name_box[2] + 14, W - 260)
-        by = 119
-        draw.ellipse((bx, by, bx + 27, by + 27), fill=accent)
-        draw.line((bx + 7, by + 14, bx + 12, by + 19), fill=(255, 255, 255, 255), width=3)
-        draw.line((bx + 12, by + 19, bx + 21, by + 8), fill=(255, 255, 255, 255), width=3)
+        nb = draw.textbbox((205,294), name, font=name_font)
+        bx = min(nb[2] + 13, W - 300)
+        by = 302
+        draw.ellipse((bx,by,bx+24,by+24), fill=(*glow,255))
+        draw.line((bx+5,by+12,bx+10,by+17), fill=(255,255,255,255), width=3)
+        draw.line((bx+10,by+17,bx+19,by+7), fill=(255,255,255,255), width=3)
     except Exception:
         pass
 
-    # Moon Night logo in the top-right.
-    logo = await _load_remote_image(IMAGES.get("moon_logo"))
-    if logo is not None:
-        logo.thumbnail((86, 86), Image.Resampling.LANCZOS)
-        image.alpha_composite(logo, (W - 160, 100))
+    # Tweet text — large and central, wrapped dynamically.
+    body = " ".join(text.strip().split())[:900]
+    wrapped = textwrap.wrap(body, width=48, break_long_words=False, break_on_hyphens=False) or [""]
+    # Keep enough space for footer; shrink font if the tweet is long.
+    current_font = body_font
+    if len(wrapped) > 6:
+        current_font = _font(34, False)
+        wrapped = textwrap.wrap(body, width=62, break_long_words=False, break_on_hyphens=False)
+    if len(wrapped) > 9:
+        current_font = _font(29, False)
+        wrapped = textwrap.wrap(body, width=72, break_long_words=False, break_on_hyphens=False)
 
-    # Tweet body: dynamic, wraps cleanly, and changes with the user's text.
-    body = " ".join(text.strip().split())[:700]
-    wrapped = textwrap.wrap(body, width=49, break_long_words=False, break_on_hyphens=False) or [""]
-    body_y = 255
-    for line in wrapped[:7]:
-        draw.text((105, body_y), line, font=regular_34, fill=primary)
-        body_y += 50
+    body_y = 430
+    line_gap = 56 if current_font == body_font else 47
+    for line in wrapped[:10]:
+        draw.text((100, body_y), line, font=current_font, fill=primary)
+        body_y += line_gap
 
-    # Bottom divider and live-looking counters. Start at zero instead of fake stats.
-    divider_y = H - 185
-    divider_color = (65, 65, 72, 230) if dark else (218, 220, 225, 255)
-    draw.line((105, divider_y, W - 105, divider_y), fill=divider_color, width=2)
+    # Bottom metadata / timestamp.
+    now_local = datetime.now().astimezone()
+    time_text = now_local.strftime("%H:%M")
+    date_text = now_local.strftime("%d %B %Y")
+    draw.line((100, H-142, W-100, H-142), fill=(90,90,102,125) if dark else (210,214,222,255), width=2)
+    draw.text((100, H-112), f"🕐 {time_text}  •  {date_text}", font=time_font, fill=secondary)
+    draw.text((W-430, H-112), "🐦 Moon Night Tweets", font=time_font, fill=secondary)
 
-    stats = [("0", "Replies"), ("0", "Likes"), ("0", "Views")]
-    x = 110
-    for number, label in stats:
-        draw.text((x, divider_y + 30), number, font=bold_26, fill=primary)
-        number_w = draw.textbbox((x, divider_y + 30), number, font=bold_26)[2] - x
-        draw.text((x + number_w + 12, divider_y + 33), label, font=regular_28, fill=secondary)
-        x += 250
-
-    brand = "Moon Night Tweets"
-    bbox = draw.textbbox((0, 0), brand, font=bold_24)
-    draw.text((W - 105 - (bbox[2] - bbox[0]), H - 92), f"⌁ {brand} ⌁", font=bold_24, fill=secondary)
-
-    # Theme label, so the chosen Dark/Light mode is visibly part of the design.
-    mode = "DARK MODE" if dark else "LIGHT MODE"
-    draw.rounded_rectangle((W - 285, H - 104, W - 115, H - 64), radius=18,
-                           fill=(*accent[:3], 55), outline=(*accent[:3], 130), width=1)
-    mode_box = draw.textbbox((0, 0), mode, font=bold_24)
-    draw.text((W - 200 - (mode_box[2] - mode_box[0]) / 2, H - 98), mode, font=bold_24, fill=primary)
+    # Tiny social footer, keeping the visual self-contained.
+    draw.text((100, H-82), "Share your thoughts • Moon Night Community", font=small_font, fill=secondary)
+    draw.text((W-285, H-82), "0 Replies  •  0 Likes", font=small_font, fill=secondary)
 
     output = io.BytesIO()
     image.convert("RGB").save(output, format="PNG", optimize=True)
@@ -1179,31 +1190,20 @@ class TweetModal(Modal):
                 self.theme,
             )
 
-            # Put the real Discord mention in message content so the user is actually pinged.
-            # The embed itself keeps the visual title clean.
-            embed = discord.Embed(
-                title=f"🐦 New Tweet • {interaction.user.display_name}",
-                color=EMBED_COLOR,
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.set_footer(text="Moon Night Tweets • Share your thoughts")
+            # IMPORTANT: the published tweet is a SINGLE IMAGE, not a Discord embed.
+            # This removes the simple-looking Discord card from the final tweet.
+            if image_bytes is None:
+                return await interaction.followup.send(
+                    "❌ Tweet image could not be generated. Make sure `Pillow` is installed in requirements.txt and redeploy.",
+                    ephemeral=True,
+                )
 
-            if image_bytes is not None:
-                file = discord.File(image_bytes, filename="moon_night_tweet.png")
-                embed.set_image(url="attachment://moon_night_tweet.png")
-                published_message = await post_channel.send(
-                    content=interaction.user.mention,
-                    embed=embed,
-                    file=file,
-                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
-                )
-            else:
-                embed.description = f"> {self.thought.value[:1900]}"
-                published_message = await post_channel.send(
-                    content=interaction.user.mention,
-                    embed=embed,
-                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
-                )
+            file = discord.File(image_bytes, filename="moon_night_tweet.png")
+            published_message = await post_channel.send(
+                content=interaction.user.mention,
+                file=file,
+                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+            )
 
             success = discord.Embed(
                 title="✅ Tweet Posted Successfully!",
@@ -1253,7 +1253,8 @@ def get_tweet_panel_embed():
         description=(
             "## ▷  Share your thoughts with the community!\n\n"
             "**│ Click the button below to write a new tweet!**\n\n"
-            "Choose **Dark Tweet** for the black card with white text, or **Light Tweet** for the white card with dark text.\n\n"
+            "Your finished tweet is rendered as a **full custom image** with your avatar, name, text and exact time.\n\n"
+            "Choose **Dark Tweet** for a dark Moon Night design, or **Light Tweet** for a clean light design.\n\n"
             "-# `© 2026 Moon Night™. All rights reserved.`"
         ),
         color=EMBED_COLOR,
@@ -2789,14 +2790,24 @@ HELP_CATEGORIES = {
         ("/antinuke", "Protect a member from bot moderation.")
     ],
     "🎮 Games": [
-        ("/coinflip", "Flip a virtual coin."),
-        ("/dice", "Roll a virtual die."),
-        ("/rps", "Play Rock Paper Scissors."),
-        ("/8ball", "Ask the Magic 8-Ball."),
-        ("/roulette", "Virtual roulette using Moon Coins."),
-        ("/slots", "Virtual slot machine."),
-        ("/blackjack", "Virtual blackjack."),
-        ("/mafia", "Create, join, leave, start or view Mafia.")
+        ("/games", "Open one Games Center panel containing all Moon Night games."),
+        ("/coinflip", "Heads or Tails: a fast 50/50 coin toss, no bet needed."),
+        ("/dice", "Roll a 1–6 die and see your random result."),
+        ("/rps", "Rock, Paper, Scissors against Moon Night."),
+        ("/8ball", "Ask a question and get a random Magic 8-Ball answer."),
+        ("/roulette", "Bet Moon Coins on virtual roulette and try your luck."),
+        ("/slots", "Spin 3 symbols; matching symbols can multiply your bet."),
+        ("/blackjack", "Play a blackjack hand against the dealer using Moon Coins."),
+        ("High / Low", "🎴 A random card from 1–13 appears. Bet and try your luck on the high/low result."),
+        ("Even / Odd", "🎯 A random number from 1–36 appears and you play the even/odd result for your bet."),
+        ("Wheel", "🎡 Spin the reward wheel. Different multipliers decide how many Moon Coins you receive."),
+        ("Double or Nothing", "⚡ Risk your bet: win and double it, or lose the stake."),
+        ("Treasure", "🗝️ Open a mystery chest. The reward can be 0x, 0.5x, 1x, 2x or 5x your bet."),
+        ("Number Guess", "🔢 Guess the secret number between 1 and 10. Use `/numberguess`."),
+        ("Quick Draw", "🤠 A fast reaction game. Try to beat Moon Night in the draw."),
+        ("Lucky Color", "🌈 Get a random lucky color for a quick community/fun result."),
+        ("/mafia", "Create, join, leave, start or view a Mafia game."),
+        ("Bet format", "Bet games support amounts such as `1k`, `1.5k`, `2m` and `2b`.")
     ],
     "💰 Economy": [
         ("/balance", "Check your virtual Moon Coins."),
@@ -2841,6 +2852,17 @@ HELP_CATEGORIES = {
         ("/remove", "Remove a track from the queue by position."),
         ("/clearqueue", "Clear all queued tracks without leaving voice."),
         ("/filter", "Set audio filter: off, nightcore or bassboost.")
+    ],
+    "🔊 Temporary Voice": [
+        ("/vccenter", "Open controls for your temporary voice room."),
+        ("Lock", "Stop new members from joining your temporary room."),
+        ("Unlock", "Allow members to join the room again."),
+        ("Limit", "Set the maximum number of members allowed in the room."),
+        ("Rename", "Change your temporary room name."),
+        ("Kick", "Remove a member from your temporary room."),
+        ("Move", "Move a member between voice channels when permitted."),
+        ("Close Room", "Delete your temporary room manually."),
+        ("Auto Delete", "The temporary room is automatically removed when empty.")
     ],
     "🌙 Server": [
         ("/about", "Show server statistics."),
