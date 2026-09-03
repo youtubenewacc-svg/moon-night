@@ -489,6 +489,7 @@ class DarkNightBot(commands.Bot):
         self.add_view(GamesRolesView())
         self.add_view(RoleRequestView())
         self.add_view(TweetPanelView())
+        self.add_view(TicketPanelView())
         self.add_view(GamesCenterView())
         self.add_view(TempVCControlView())
         
@@ -4574,6 +4575,413 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     )
 
 
+
+# ==========================================
+# 🎫 GENERAL TICKET SYSTEM
+# ==========================================
+
+GENERAL_TICKET_CATEGORY_ID = 1544813019995836549
+
+GENERAL_TICKET_BANNER_URL = (
+    "https://cdn.discordapp.com/attachments/"
+    "1544405375632015552/1545127507710181417/"
+    "banner_octopus_studio.png"
+    "?ex=6a9b03a0&is=6a99b220&hm="
+    "40575cc971757ea2136d07056b149af25fc0b7661f98642781f2c3b0d6c61efd&"
+)
+
+TICKET_TYPES = {
+    "pub": {
+        "label": "Pub",
+        "emoji": "📢",
+        "prefix": "pubticket",
+        "description": "Open a ticket to report a spam!",
+    },
+    "bugs": {
+        "label": "Bugs",
+        "emoji": "🐛",
+        "prefix": "bugticket",
+        "description": "Open a ticket to report bugs!",
+    },
+    "abuse": {
+        "label": "Abuse",
+        "emoji": "⚠️",
+        "prefix": "abuseticket",
+        "description": "Open a ticket to report abuse!",
+    },
+    "server": {
+        "label": "Server",
+        "emoji": "🛠️",
+        "prefix": "serverticket",
+        "description": "Open a ticket for server-related issues!",
+    },
+    "staff_abuse": {
+        "label": "Staff Abuse",
+        "emoji": "🚨",
+        "prefix": "staffabuseticket",
+        "description": "Open a ticket to report staff abuse!",
+    },
+}
+
+
+def _ticket_channel_name(ticket_type: str, user: discord.Member) -> str:
+    config = TICKET_TYPES[ticket_type]
+
+    safe_name = re.sub(
+        r"[^a-zA-Z0-9_-]+",
+        "",
+        user.name,
+    ).lower()[:70]
+
+    if not safe_name:
+        safe_name = str(user.id)
+
+    return f"{config['prefix']}-{safe_name}"
+
+
+def _find_user_ticket(
+    category: discord.CategoryChannel,
+    user_id: int,
+    ticket_type: str,
+):
+    marker = f"moon-night-ticket:{ticket_type}:{user_id}"
+
+    for channel in category.text_channels:
+        if channel.topic and marker in channel.topic:
+            return channel
+
+    return None
+
+
+def get_general_ticket_embed():
+    embed = discord.Embed(
+        title="🎟️ | Need help? Open a Ticket!",
+        description=(
+            "• **Pub** ⇝ Open a ticket to report a spam!\n\n"
+            "• **Bugs** ⇝ Open a ticket to report bugs!\n\n"
+            "• **Abuse** ⇝ Open a ticket to report abuse!\n\n"
+            "• **Server** ⇝ Open a ticket for server-related issues!\n\n"
+            "• **Staff Abuse** ⇝ Open a ticket to report staff abuse!"
+        ),
+        color=0x5865F2,
+    )
+    embed.set_image(url=GENERAL_TICKET_BANNER_URL)
+    embed.set_footer(
+        text="© 2026 Moon Night™. We are here to help you!"
+    )
+    return embed
+
+
+def _ticket_overwrites(
+    guild: discord.Guild,
+    user: discord.Member,
+):
+    return {
+        guild.default_role: discord.PermissionOverwrite(
+            view_channel=False,
+        ),
+        user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True,
+        ),
+    }
+
+
+class TicketCloseView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Close Ticket",
+        emoji="🔒",
+        style=ButtonStyle.danger,
+        custom_id="moon_ticket_close",
+    )
+    async def close_ticket(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        channel = interaction.channel
+
+        if not isinstance(channel, discord.TextChannel):
+            return await interaction.response.send_message(
+                "❌ This is not a ticket channel.",
+                ephemeral=True,
+            )
+
+        if not channel.topic or not channel.topic.startswith(
+            "moon-night-ticket:"
+        ):
+            return await interaction.response.send_message(
+                "❌ This channel is not managed by the ticket system.",
+                ephemeral=True,
+            )
+
+        parts = channel.topic.split(":")
+
+        try:
+            owner_id = int(parts[-1])
+        except (ValueError, IndexError):
+            owner_id = 0
+
+        allowed = (
+            interaction.user.id == owner_id
+            or interaction.user.id == OWNER_ID
+            or interaction.user.guild_permissions.administrator
+            or interaction.user.guild_permissions.manage_channels
+        )
+
+        if not allowed:
+            return await interaction.response.send_message(
+                "❌ Only the ticket owner or server staff can close this ticket.",
+                ephemeral=True,
+            )
+
+        await interaction.response.send_message(
+            "🔒 Closing this ticket in **5 seconds**..."
+        )
+
+        await asyncio.sleep(5)
+
+        try:
+            await channel.delete(
+                reason=(
+                    f"Moon Night ticket closed by "
+                    f"{interaction.user} ({interaction.user.id})"
+                )
+            )
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException,
+        ):
+            pass
+
+
+class TicketPanelView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _open_ticket(
+        self,
+        interaction: Interaction,
+        ticket_type: str,
+    ):
+        guild = interaction.guild
+
+        if guild is None:
+            return await interaction.response.send_message(
+                "❌ This ticket system can only be used inside a server.",
+                ephemeral=True,
+            )
+
+        config = TICKET_TYPES[ticket_type]
+
+        category = guild.get_channel(
+            GENERAL_TICKET_CATEGORY_ID
+        )
+
+        if not isinstance(category, discord.CategoryChannel):
+            return await interaction.response.send_message(
+                (
+                    "❌ Ticket category was not found.\n"
+                    f"Category ID: `{GENERAL_TICKET_CATEGORY_ID}`"
+                ),
+                ephemeral=True,
+            )
+
+        existing = _find_user_ticket(
+            category,
+            interaction.user.id,
+            ticket_type,
+        )
+
+        if existing:
+            return await interaction.response.send_message(
+                (
+                    f"⚠️ You already have a **{config['label']}** ticket open: "
+                    f"{existing.mention}"
+                ),
+                ephemeral=True,
+            )
+
+        await interaction.response.defer(ephemeral=True)
+
+        channel_name = _ticket_channel_name(
+            ticket_type,
+            interaction.user,
+        )
+
+        marker = (
+            f"moon-night-ticket:"
+            f"{ticket_type}:"
+            f"{interaction.user.id}"
+        )
+
+        try:
+            ticket_channel = await guild.create_text_channel(
+                name=channel_name,
+                category=category,
+                topic=marker,
+                overwrites=_ticket_overwrites(
+                    guild,
+                    interaction.user,
+                ),
+                reason=(
+                    f"Moon Night {config['label']} ticket "
+                    f"opened by {interaction.user} "
+                    f"({interaction.user.id})"
+                ),
+            )
+
+            ticket_embed = discord.Embed(
+                title=(
+                    f"{config['emoji']} | "
+                    f"{config['label']} Ticket"
+                ),
+                description=(
+                    f"Hello {interaction.user.mention}! 👋\n\n"
+                    f"Welcome to your **{config['label']}** ticket.\n\n"
+                    f"**Reason:** {config['description']}\n\n"
+                    "Please explain your issue clearly and provide "
+                    "screenshots/proof when useful.\n\n"
+                    "A staff member will help you as soon as possible."
+                ),
+                color=0x5865F2,
+                timestamp=datetime.now(timezone.utc),
+            )
+
+            ticket_embed.set_thumbnail(
+                url=interaction.user.display_avatar.url
+            )
+
+            ticket_embed.set_footer(
+                text="Moon Night Support • Ticket System"
+            )
+
+            await ticket_channel.send(
+                content=interaction.user.mention,
+                embed=ticket_embed,
+                view=TicketCloseView(),
+                allowed_mentions=discord.AllowedMentions(
+                    users=[interaction.user]
+                ),
+            )
+
+            await interaction.followup.send(
+                (
+                    f"✅ Your **{config['label']}** ticket has been created: "
+                    f"{ticket_channel.mention}"
+                ),
+                ephemeral=True,
+            )
+
+            try:
+                await send_audit_log(
+                    guild,
+                    title="🎫 Ticket Opened",
+                    actor=interaction.user,
+                    target=interaction.user,
+                    channel=ticket_channel,
+                    extra_fields=[
+                        ("🎟️ Type", config["label"], True),
+                        ("🔑 Channel", ticket_channel.mention, True),
+                    ],
+                )
+            except Exception as exc:
+                print(
+                    f"[TICKET] Audit log failed: {exc!r}"
+                )
+
+        except discord.Forbidden:
+            await interaction.followup.send(
+                (
+                    "❌ I cannot create the ticket channel. "
+                    "Give the bot **Manage Channels** permission."
+                ),
+                ephemeral=True,
+            )
+
+        except discord.HTTPException as exc:
+            print(
+                f"[TICKET] Create channel error: {exc!r}"
+            )
+            await interaction.followup.send(
+                "❌ Discord returned an error while creating the ticket.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(
+        label="Pub",
+        emoji="📢",
+        style=ButtonStyle.secondary,
+        custom_id="moon_ticket_pub",
+    )
+    async def pub_ticket(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await self._open_ticket(interaction, "pub")
+
+    @discord.ui.button(
+        label="Bugs",
+        emoji="🐛",
+        style=ButtonStyle.secondary,
+        custom_id="moon_ticket_bugs",
+    )
+    async def bugs_ticket(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await self._open_ticket(interaction, "bugs")
+
+    @discord.ui.button(
+        label="Abuse",
+        emoji="⚠️",
+        style=ButtonStyle.secondary,
+        custom_id="moon_ticket_abuse",
+    )
+    async def abuse_ticket(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await self._open_ticket(interaction, "abuse")
+
+    @discord.ui.button(
+        label="Server",
+        emoji="🛠️",
+        style=ButtonStyle.secondary,
+        custom_id="moon_ticket_server",
+    )
+    async def server_ticket(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await self._open_ticket(interaction, "server")
+
+    @discord.ui.button(
+        label="Staff Abuse",
+        emoji="🚨",
+        style=ButtonStyle.secondary,
+        custom_id="moon_ticket_staff_abuse",
+    )
+    async def staff_abuse_ticket(
+        self,
+        interaction: Interaction,
+        button: Button,
+    ):
+        await self._open_ticket(interaction, "staff_abuse")
+
+
+
 # ==========================================
 # MASTER SLASH COMMAND TO SEND PANELS
 # ==========================================
@@ -4588,7 +4996,8 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     app_commands.Choice(name="Self Roles", value="selfroles"),
     app_commands.Choice(name="Role Request Panel", value="rolerequest"),
     app_commands.Choice(name="Tweets System", value="tweets"),
-    app_commands.Choice(name="Games Center", value="games")
+    app_commands.Choice(name="Games Center", value="games"),
+    app_commands.Choice(name="General Ticket", value="general_ticket")
 ])
 @is_owner_or_admin()
 async def send_panel(interaction: Interaction, panel: str):
@@ -4614,6 +5023,11 @@ async def send_panel(interaction: Interaction, panel: str):
         await interaction.channel.send(embed=get_role_request_embed(), view=RoleRequestView())
     elif panel == "tweets":
         await interaction.channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
+    elif panel == "general_ticket":
+        await interaction.channel.send(
+            embed=get_general_ticket_embed(),
+            view=TicketPanelView(),
+        )
     elif panel == "games":
         await interaction.channel.send(embed=get_games_center_embed(), view=GamesCenterView())
 
