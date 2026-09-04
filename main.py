@@ -207,7 +207,7 @@ EMOJIS = {
     "members": "<:Fams:1451145463511384094>",
     "voice": "<:voice:1451145649801269420>",
     "premium": "<:premium:1451145621246312529>",
-    "rules_star": "<a:estrellasbrillando:1442626060134121472>",
+    "rules_star": "<a:work1:1545505493802549369>",
     "welcome": "<a:welcome:1442626577690132663>",
     "channel": "<a:channelutility:1444868927262822582>",
     "arrow": "<:arrowblancasincentro:1444869479250002021>",
