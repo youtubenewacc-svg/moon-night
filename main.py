@@ -207,7 +207,7 @@ EMOJIS = {
     "members": "<:Fams:1451145463511384094>",
     "voice": "<:voice:1451145649801269420>",
     "premium": "<:premium:1451145621246312529>",
-    "rules_star": "<a:work1:1545505493802549369>",
+    "rules_star": "<a:estrellasbrillando:1442626060134121472>",
     "welcome": "<a:welcome:1442626577690132663>",
     "channel": "<a:channelutility:1444868927262822582>",
     "arrow": "<:arrowblancasincentro:1444869479250002021>",
@@ -324,6 +324,7 @@ def role_mention(name: str) -> str:
 
 intents = discord.Intents.default()
 intents.members = True
+intents.presences = True
 intents.message_content = True
 
 
@@ -489,12 +490,17 @@ class DarkNightBot(commands.Bot):
         self.add_view(GamesRolesView())
         self.add_view(RoleRequestView())
         self.add_view(TweetPanelView())
-        self.add_view(VoicePanelControlView())
         self.add_view(GamesCenterView())
         self.add_view(TempVCControlView())
         
         await self.tree.sync()
         print("Slash Commands Synced & Persistent Views Registered Successfully!")
+        print("[ABOUT] Presence Intent enabled: online/idle/dnd/offline stats are available.")
+        for g in self.guilds:
+            print(
+                f"[ABOUT] {g.name}: member_count={g.member_count}, "
+                f"cached_members={len(g.members)}"
+            )
 
 bot = DarkNightBot()
 
@@ -1503,15 +1509,24 @@ async def about(interaction: Interaction):
 
     update_peak_members(guild)
 
+    # Discord's guild.member_count is the authoritative total.
+    # Presence Intent supplies the online/idle/dnd states.
     total = guild.member_count or len(guild.members)
-    active = sum(
+
+    online = sum(
         1 for m in guild.members
-        if m.status in {
-            discord.Status.online,
-            discord.Status.idle,
-            discord.Status.dnd
-        }
+        if m.status == discord.Status.online
     )
+    idle = sum(
+        1 for m in guild.members
+        if m.status == discord.Status.idle
+    )
+    dnd = sum(
+        1 for m in guild.members
+        if m.status == discord.Status.dnd
+    )
+
+    active = online + idle + dnd
     offline = max(total - active, 0)
     roles = len(guild.roles)
     channels = len(guild.channels)
@@ -3863,81 +3878,25 @@ async def temporary_voice_listener(member, before, after):
 # ==========================================
 # 🔊 TEMPORARY VC CONTROL CENTER
 # ==========================================
-
-# This is a NORMAL TEXT CHANNEL where the panel is posted.
-# It is NOT the temporary voice channel itself.
-VOICE_PANEL_IMAGE_URL = (
-    "https://cdn.discordapp.com/attachments/"
-    "1508515432834011160/1537230309756768256/"
-    "From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif"
-    "?ex=6a9aa10a&is=6a994f8a&hm="
-    "f284e770e06dfdd96ca2588e63011f6d7febb3fc1a7f27d0b419dc0e18bf4668&"
-)
-
-VOICE_RULES_URL = (
-    "https://discord.com/channels/"
-    "1237973983882907739/1544405529613566044"
-)
-
-VOICE_NEED_HELP_URL = (
-    "https://discord.com/channels/"
-    "1237973983882907739/1544406090089893949"
-)
-
-
 def get_temp_vc_meta(channel):
     return TEMP_VC_META.get(getattr(channel, "id", 0))
 
-
-def find_owned_temp_vc(guild: discord.Guild, user_id: int):
-    """
-    Find the active temporary VC owned by this user.
-
-    This lets the control panel live in a normal text channel:
-    the buttons automatically target the owner's own temporary VC.
-    """
-    for channel_id, meta in list(TEMP_VC_META.items()):
-        if meta.get("owner") != user_id:
-            continue
-
-        channel = guild.get_channel(channel_id)
-
-        if isinstance(channel, discord.VoiceChannel):
-            return channel
-
-        # Clean stale entries automatically.
-        TEMP_VCS.pop(channel_id, None)
-        TEMP_VC_META.pop(channel_id, None)
-
-    return None
-
-
 def can_manage_temp_vc(interaction, channel):
     meta = get_temp_vc_meta(channel)
-
     if not meta:
         return False
-
     return (
         interaction.user.id == OWNER_ID
         or interaction.user.guild_permissions.administrator
         or interaction.user.id == meta.get("owner")
     )
 
-
 def make_temp_vc_embed(channel):
     meta = get_temp_vc_meta(channel) or {}
     owner_id = meta.get("owner", 0)
-
-    owner = (
-        channel.guild.get_member(owner_id)
-        if channel.guild
-        else None
-    )
-
+    owner = channel.guild.get_member(owner_id) if channel.guild else None
     locked = meta.get("locked", False)
     limit = meta.get("limit", 0)
-
     embed = discord.Embed(
         title="🔊 Dark Night • Private Room Control",
         description=(
@@ -3950,803 +3909,156 @@ def make_temp_vc_embed(channel):
         ),
         color=EMBED_COLOR,
     )
-
     embed.set_thumbnail(url=COMMUNITY_IMAGE_URL)
-
     return embed
-
-
-def get_voice_panel_embed():
-    """
-    Main clean Dark Night voice panel.
-    The panel is intended to be posted in a normal text channel.
-    """
-    embed = discord.Embed(
-        title="୨୧ `Dark Night 🌙` Voice Panel",
-        description=(
-            "```ansi\n"
-            "Manage your room, adjust visibility, and control "
-            "voice features from one clean panel.\n"
-            "```\n"
-            "✧ [**__Check our rules here.__**](https://discord.com/channels/1237973983882907739/1544405529613566044)\n"
-            "✧ [**__For voice assistance, join a support voice channel.__**](https://discord.com/channels/1237973983882907739/1544406090089893949)\n"
-            "-# © 2025 **Dark Night 🌙**, Inc. All rights reserved. "
-            "Powered by @Omar ⛥."
-        ),
-        color=EMBED_COLOR,
-    )
-
-    embed.set_image(url=VOICE_PANEL_IMAGE_URL)
-
-    return embed
-
 
 class VCLimitModal(Modal):
     def __init__(self, channel):
         self.channel_id = channel.id
-
-        super().__init__(
-            title="Set Voice Room Limit"
-        )
-
-        self.limit = TextInput(
-            label="User limit",
-            placeholder="0 = unlimited, max 99",
-            max_length=2,
-            required=True,
-        )
-
+        super().__init__(title="Set Voice Room Limit")
+        self.limit = TextInput(label="User limit", placeholder="0 = unlimited, max 99", max_length=2, required=True)
         self.add_item(self.limit)
 
     async def on_submit(self, interaction: Interaction):
-        channel = interaction.guild.get_channel(
-            self.channel_id
-        )
-
-        if (
-            not isinstance(channel, discord.VoiceChannel)
-            or not can_manage_temp_vc(interaction, channel)
-        ):
-            return await interaction.response.send_message(
-                "❌ You cannot control this room.",
-                ephemeral=True,
-            )
-
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
         try:
             limit = int(self.limit.value)
         except ValueError:
-            return await interaction.response.send_message(
-                "❌ Enter a number from `0` to `99`.",
-                ephemeral=True,
-            )
-
+            return await interaction.response.send_message("❌ Enter a number from `0` to `99`.", ephemeral=True)
         if not 0 <= limit <= 99:
-            return await interaction.response.send_message(
-                "❌ Enter a number from `0` to `99`.",
-                ephemeral=True,
-            )
-
-        await channel.edit(
-            user_limit=limit,
-            reason=f"Temp VC limit changed by {interaction.user}",
-        )
-
+            return await interaction.response.send_message("❌ Enter a number from `0` to `99`.", ephemeral=True)
+        await channel.edit(user_limit=limit, reason=f"Temp VC limit changed by {interaction.user}")
         TEMP_VC_META[channel.id]["limit"] = limit
-
-        await interaction.response.send_message(
-            f"👥 Room limit set to **{'Unlimited' if limit == 0 else limit}**.",
-            ephemeral=True,
-        )
-
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
 
 class VCRenameModal(Modal):
     def __init__(self, channel):
         self.channel_id = channel.id
-
-        super().__init__(
-            title="Rename Voice Room"
-        )
-
-        self.name = TextInput(
-            label="Room name",
-            placeholder="My Private Room",
-            min_length=1,
-            max_length=90,
-            required=True,
-        )
-
+        super().__init__(title="Rename Voice Room")
+        self.name = TextInput(label="Room name", placeholder="My Private Room", min_length=1, max_length=90, required=True)
         self.add_item(self.name)
 
     async def on_submit(self, interaction: Interaction):
-        channel = interaction.guild.get_channel(
-            self.channel_id
-        )
-
-        if (
-            not isinstance(channel, discord.VoiceChannel)
-            or not can_manage_temp_vc(interaction, channel)
-        ):
-            return await interaction.response.send_message(
-                "❌ You cannot control this room.",
-                ephemeral=True,
-            )
-
-        await channel.edit(
-            name=self.name.value,
-            reason=f"Temp VC renamed by {interaction.user}",
-        )
-
-        await interaction.response.send_message(
-            f"✏️ Room renamed to **{channel.name}**.",
-            ephemeral=True,
-        )
-
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
+        await channel.edit(name=self.name.value, reason=f"Temp VC renamed by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
 
 class VCKickModal(Modal):
     def __init__(self, channel):
         self.channel_id = channel.id
-
-        super().__init__(
-            title="Remove Member From Room"
-        )
-
-        self.member_id = TextInput(
-            label="Member ID",
-            placeholder="Discord user ID",
-            max_length=25,
-            required=True,
-        )
-
+        super().__init__(title="Remove Member From Room")
+        self.member_id = TextInput(label="Member ID", placeholder="Discord user ID", max_length=25, required=True)
         self.add_item(self.member_id)
 
     async def on_submit(self, interaction: Interaction):
-        channel = interaction.guild.get_channel(
-            self.channel_id
-        )
-
-        if (
-            not isinstance(channel, discord.VoiceChannel)
-            or not can_manage_temp_vc(interaction, channel)
-        ):
-            return await interaction.response.send_message(
-                "❌ You cannot control this room.",
-                ephemeral=True,
-            )
-
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
         try:
-            uid = int(
-                self.member_id.value.strip()
-            )
+            uid = int(self.member_id.value.strip())
         except ValueError:
-            return await interaction.response.send_message(
-                "❌ Invalid Discord user ID.",
-                ephemeral=True,
-            )
-
+            return await interaction.response.send_message("❌ Invalid Discord user ID.", ephemeral=True)
         member = interaction.guild.get_member(uid)
-
-        if (
-            not member
-            or member.voice is None
-            or member.voice.channel != channel
-        ):
-            return await interaction.response.send_message(
-                "❌ That member is not in this room.",
-                ephemeral=True,
-            )
-
+        if not member or member.voice is None or member.voice.channel != channel:
+            return await interaction.response.send_message("❌ That member is not in this room.", ephemeral=True)
         meta = get_temp_vc_meta(channel) or {}
-
-        if (
-            uid == meta.get("owner")
-            and uid != interaction.user.id
-            and interaction.user.id != OWNER_ID
-            and not interaction.user.guild_permissions.administrator
-        ):
-            return await interaction.response.send_message(
-                "❌ The room owner cannot be removed by another member.",
-                ephemeral=True,
-            )
-
-        await member.move_to(
-            None,
-            reason=f"Removed from temp VC by {interaction.user}",
-        )
-
-        await interaction.response.send_message(
-            f"👢 {member.mention} was removed from the room.",
-            ephemeral=True,
-        )
-
+        if uid == meta.get("owner") and uid != interaction.user.id and interaction.user.id != OWNER_ID and not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ The room owner cannot be removed by another member.", ephemeral=True)
+        await member.move_to(None, reason=f"Removed from temp VC by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
 
 class VCMoveModal(Modal):
     def __init__(self, channel):
         self.channel_id = channel.id
-
-        super().__init__(
-            title="Move Member Into Room"
-        )
-
-        self.member_id = TextInput(
-            label="Member ID",
-            placeholder="Discord user ID",
-            max_length=25,
-            required=True,
-        )
-
+        super().__init__(title="Move Member Into Room")
+        self.member_id = TextInput(label="Member ID", placeholder="Discord user ID", max_length=25, required=True)
         self.add_item(self.member_id)
 
     async def on_submit(self, interaction: Interaction):
-        channel = interaction.guild.get_channel(
-            self.channel_id
-        )
-
-        if (
-            not isinstance(channel, discord.VoiceChannel)
-            or not can_manage_temp_vc(interaction, channel)
-        ):
-            return await interaction.response.send_message(
-                "❌ You cannot control this room.",
-                ephemeral=True,
-            )
-
+        channel = interaction.guild.get_channel(self.channel_id)
+        if not isinstance(channel, discord.VoiceChannel) or not can_manage_temp_vc(interaction, channel):
+            return await interaction.response.send_message("❌ You cannot control this room.", ephemeral=True)
         try:
-            uid = int(
-                self.member_id.value.strip()
-            )
+            uid = int(self.member_id.value.strip())
         except ValueError:
-            return await interaction.response.send_message(
-                "❌ Invalid Discord user ID.",
-                ephemeral=True,
-            )
-
+            return await interaction.response.send_message("❌ Invalid Discord user ID.", ephemeral=True)
         member = interaction.guild.get_member(uid)
-
         if not member:
-            return await interaction.response.send_message(
-                "❌ Member not found.",
-                ephemeral=True,
-            )
-
-        limit = get_temp_vc_meta(channel).get(
-            "limit",
-            0,
-        )
-
-        if (
-            limit
-            and len(channel.members) >= limit
-            and member.voice
-            and member.voice.channel != channel
-        ):
-            return await interaction.response.send_message(
-                "❌ This room is full.",
-                ephemeral=True,
-            )
-
-        await member.move_to(
-            channel,
-            reason=f"Moved into temp VC by {interaction.user}",
-        )
-
-        await interaction.response.send_message(
-            f"↪️ {member.mention} moved into the room.",
-            ephemeral=True,
-        )
-
+            return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
+        limit = get_temp_vc_meta(channel).get("limit", 0)
+        if limit and len(channel.members) >= limit and member.voice and member.voice.channel != channel:
+            return await interaction.response.send_message("❌ This room is full.", ephemeral=True)
+        await member.move_to(channel, reason=f"Moved into temp VC by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=TempVCControlView())
 
 class TempVCControlView(View):
-    """
-    This view can be used both:
-      1. inside an old VC-control message
-      2. from the new NORMAL TEXT CHANNEL voice panel.
-
-    From the text panel, the user's own temporary VC is found
-    automatically.
-    """
-
     def __init__(self):
         super().__init__(timeout=None)
 
     async def _check(self, interaction):
-        guild = interaction.guild
-
-        if guild is None:
-            await interaction.response.send_message(
-                "❌ This can only be used inside a server.",
-                ephemeral=True,
-            )
+        channel = interaction.channel
+        if not isinstance(channel, discord.VoiceChannel) or channel.id not in TEMP_VC_META:
+            await interaction.response.send_message("❌ This is not an active Dark Night temporary room.", ephemeral=True)
             return None
-
-        channel = None
-
-        # Old behavior: if the message is actually inside a temp VC,
-        # use that VC.
-        if (
-            isinstance(interaction.channel, discord.VoiceChannel)
-            and interaction.channel.id in TEMP_VC_META
-        ):
-            channel = interaction.channel
-
-        # New behavior: panel is in a normal text channel, so locate
-        # the user's own temporary VC.
-        if channel is None:
-            channel = find_owned_temp_vc(
-                guild,
-                interaction.user.id,
-            )
-
-        # Server owner/admin can control a selected active room if the
-        # panel is used outside a VC. Prefer their own room when one exists.
-        if channel is None:
-            if (
-                interaction.user.id == OWNER_ID
-                or interaction.user.guild_permissions.administrator
-            ):
-                active_rooms = [
-                    guild.get_channel(cid)
-                    for cid in TEMP_VC_META
-                ]
-                active_rooms = [
-                    c for c in active_rooms
-                    if isinstance(c, discord.VoiceChannel)
-                ]
-
-                if len(active_rooms) == 1:
-                    channel = active_rooms[0]
-
-        if channel is None:
-            await interaction.response.send_message(
-                "❌ You don't have an active temporary voice room.",
-                ephemeral=True,
-            )
+        if not can_manage_temp_vc(interaction, channel):
+            await interaction.response.send_message("❌ Only the room owner or a server Owner/Admin can control this room.", ephemeral=True)
             return None
-
-        if not can_manage_temp_vc(
-            interaction,
-            channel,
-        ):
-            await interaction.response.send_message(
-                "❌ Only the room owner or a server Owner/Admin can control this room.",
-                ephemeral=True,
-            )
-            return None
-
         return channel
 
-    @discord.ui.button(
-        label="",
-        emoji="🔒",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_lock",
-    )
-    async def lock(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Lock", emoji="🔒", style=ButtonStyle.secondary, custom_id="tempvc_lock")
+    async def lock(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
-
-        if not channel:
-            return
-
+        if not channel: return
         meta = TEMP_VC_META[channel.id]
         meta["locked"] = True
-
         everyone = channel.guild.default_role
-        owner = channel.guild.get_member(
-            meta["owner"]
-        )
-
-        await channel.set_permissions(
-            everyone,
-            connect=False,
-            reason=f"Temp VC locked by {interaction.user}",
-        )
-
+        owner = channel.guild.get_member(meta["owner"])
+        await channel.set_permissions(everyone, connect=False, reason=f"Temp VC locked by {interaction.user}")
         if owner:
-            await channel.set_permissions(
-                owner,
-                connect=True,
-                reason="Keep room owner connected",
-            )
+            await channel.set_permissions(owner, connect=True, reason="Keep room owner connected")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=self)
 
-        await interaction.response.send_message(
-            "🔒 Room locked.",
-            ephemeral=True,
-        )
-
-    @discord.ui.button(
-        label="",
-        emoji="🔓",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_unlock",
-    )
-    async def unlock(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Unlock", emoji="🔓", style=ButtonStyle.success, custom_id="tempvc_unlock")
+    async def unlock(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
-
-        if not channel:
-            return
-
+        if not channel: return
         TEMP_VC_META[channel.id]["locked"] = False
+        await channel.set_permissions(channel.guild.default_role, connect=None, reason=f"Temp VC unlocked by {interaction.user}")
+        await interaction.response.edit_message(embed=make_temp_vc_embed(channel), view=self)
 
-        await channel.set_permissions(
-            channel.guild.default_role,
-            connect=None,
-            reason=f"Temp VC unlocked by {interaction.user}",
-        )
-
-        await interaction.response.send_message(
-            "🔓 Room unlocked.",
-            ephemeral=True,
-        )
-
-    @discord.ui.button(
-        label="",
-        emoji="👥",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_limit",
-    )
-    async def limit(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Limit", emoji="👥", style=ButtonStyle.primary, custom_id="tempvc_limit")
+    async def limit(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCLimitModal(channel))
 
-        if channel:
-            await interaction.response.send_modal(
-                VCLimitModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="✏️",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_rename",
-    )
-    async def rename(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Rename", emoji="✏️", style=ButtonStyle.primary, custom_id="tempvc_rename")
+    async def rename(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCRenameModal(channel))
 
-        if channel:
-            await interaction.response.send_modal(
-                VCRenameModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="👢",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_kick",
-    )
-    async def kick(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Kick", emoji="👢", style=ButtonStyle.danger, custom_id="tempvc_kick")
+    async def kick(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCKickModal(channel))
 
-        if channel:
-            await interaction.response.send_modal(
-                VCKickModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="↪️",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_move",
-    )
-    async def move(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Move", emoji="↪️", style=ButtonStyle.secondary, custom_id="tempvc_move")
+    async def move(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
+        if channel: await interaction.response.send_modal(VCMoveModal(channel))
 
-        if channel:
-            await interaction.response.send_modal(
-                VCMoveModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="🗑️",
-        style=ButtonStyle.secondary,
-        custom_id="tempvc_close",
-    )
-    async def close(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
+    @discord.ui.button(label="Close Room", emoji="🗑️", style=ButtonStyle.danger, custom_id="tempvc_close")
+    async def close(self, interaction: Interaction, button: Button):
         channel = await self._check(interaction)
-
-        if not channel:
-            return
-
+        if not channel: return
         channel_id = channel.id
-
-        TEMP_VCS.pop(
-            channel_id,
-            None,
-        )
-
-        TEMP_VC_META.pop(
-            channel_id,
-            None,
-        )
-
-        await channel.delete(
-            reason=f"Temp VC closed by {interaction.user}"
-        )
-
-        await interaction.response.send_message(
-            "🗑️ Temporary room closed.",
-            ephemeral=True,
-        )
-
-
-class VoicePanelView(View):
-    """
-    The Rules and Need Help links are now clickable markdown links
-    directly inside the embed text, so no extra link-button row is shown.
-    """
-
-    def __init__(self):
-        super().__init__(timeout=None)
-
-
-class VoicePanelControlView(View):
-    """
-    The actual room-control buttons.
-    They are emoji-only and intentionally use secondary buttons
-    so there are no bright blue/red/green blocks.
-    """
-
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    async def _control(self, interaction):
-        guild = interaction.guild
-
-        if guild is None:
-            await interaction.response.send_message(
-                "❌ This can only be used inside a server.",
-                ephemeral=True,
-            )
-            return None
-
-        channel = find_owned_temp_vc(
-            guild,
-            interaction.user.id,
-        )
-
-        if channel is None:
-            await interaction.response.send_message(
-                "❌ You don't have an active temporary voice room.",
-                ephemeral=True,
-            )
-            return None
-
-        if not can_manage_temp_vc(
-            interaction,
-            channel,
-        ):
-            await interaction.response.send_message(
-                "❌ You cannot control this room.",
-                ephemeral=True,
-            )
-            return None
-
-        return channel
-
-    @discord.ui.button(
-        label="",
-        emoji="🔒",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_lock",
-        row=0,
-    )
-    async def lock(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if not channel:
-            return
-
-        meta = TEMP_VC_META[channel.id]
-        meta["locked"] = True
-
-        everyone = channel.guild.default_role
-        owner = channel.guild.get_member(
-            meta["owner"]
-        )
-
-        await channel.set_permissions(
-            everyone,
-            connect=False,
-            reason=f"Temp VC locked by {interaction.user}",
-        )
-
-        if owner:
-            await channel.set_permissions(
-                owner,
-                connect=True,
-                reason="Keep room owner connected",
-            )
-
-        await interaction.response.send_message(
-            "🔒 Room locked.",
-            ephemeral=True,
-        )
-
-    @discord.ui.button(
-        label="",
-        emoji="🔓",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_unlock",
-        row=0,
-    )
-    async def unlock(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if not channel:
-            return
-
-        TEMP_VC_META[channel.id]["locked"] = False
-
-        await channel.set_permissions(
-            channel.guild.default_role,
-            connect=None,
-            reason=f"Temp VC unlocked by {interaction.user}",
-        )
-
-        await interaction.response.send_message(
-            "🔓 Room unlocked.",
-            ephemeral=True,
-        )
-
-    @discord.ui.button(
-        label="",
-        emoji="👥",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_limit",
-        row=0,
-    )
-    async def limit(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if channel:
-            await interaction.response.send_modal(
-                VCLimitModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="✏️",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_rename",
-        row=0,
-    )
-    async def rename(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if channel:
-            await interaction.response.send_modal(
-                VCRenameModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="👢",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_kick",
-        row=1,
-    )
-    async def kick(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if channel:
-            await interaction.response.send_modal(
-                VCKickModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="↪️",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_move",
-        row=1,
-    )
-    async def move(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if channel:
-            await interaction.response.send_modal(
-                VCMoveModal(channel)
-            )
-
-    @discord.ui.button(
-        label="",
-        emoji="🗑️",
-        style=ButtonStyle.secondary,
-        custom_id="voice_panel_close",
-        row=1,
-    )
-    async def close(
-        self,
-        interaction: Interaction,
-        button: Button,
-    ):
-        channel = await self._control(interaction)
-
-        if not channel:
-            return
-
-        channel_id = channel.id
-
-        TEMP_VCS.pop(
-            channel_id,
-            None,
-        )
-
-        TEMP_VC_META.pop(
-            channel_id,
-            None,
-        )
-
-        await channel.delete(
-            reason=f"Temp VC closed by {interaction.user}"
-        )
-
-        await interaction.response.send_message(
-            "🗑️ Temporary room closed.",
-            ephemeral=True,
-        )
-
-
-def make_full_voice_panel():
-    """
-    Returns the embed + the two emoji-only button rows.
-    """
-    return (
-        get_voice_panel_embed(),
-        VoicePanelView(),
-        VoicePanelControlView(),
-    )
-
+        TEMP_VCS.pop(channel_id, None)
+        TEMP_VC_META.pop(channel_id, None)
+        await channel.delete(reason=f"Temp VC closed by {interaction.user}")
+        await interaction.response.send_message("🗑️ Temporary room closed.", ephemeral=True)
 
 # ==========================================
 # 🔊 VOICE ACTIVITY LOGS
@@ -4795,8 +4107,7 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     app_commands.Choice(name="Self Roles", value="selfroles"),
     app_commands.Choice(name="Role Request Panel", value="rolerequest"),
     app_commands.Choice(name="Tweets System", value="tweets"),
-    app_commands.Choice(name="Games Center", value="games"),
-    app_commands.Choice(name="Voice Room Panel", value="voice_room_panel")
+    app_commands.Choice(name="Games Center", value="games")
 ])
 @is_owner_or_admin()
 async def send_panel(interaction: Interaction, panel: str):
@@ -4822,12 +4133,6 @@ async def send_panel(interaction: Interaction, panel: str):
         await interaction.channel.send(embed=get_role_request_embed(), view=RoleRequestView())
     elif panel == "tweets":
         await interaction.channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
-    elif panel == "voice_room_panel":
-        voice_embed, voice_links, voice_controls = make_full_voice_panel()
-        await interaction.channel.send(
-            embed=voice_embed,
-            view=voice_controls,
-        )
     elif panel == "games":
         await interaction.channel.send(embed=get_games_center_embed(), view=GamesCenterView())
 
