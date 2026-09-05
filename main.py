@@ -165,18 +165,69 @@ CHANNEL_IDS = {
     "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
 }
 
-# ==========================================
 # 🐦 TWEET CHANNELS PER SERVER
-# ==========================================
-# Put each Discord SERVER/GUILD ID on the left
-# and that server's TWEET CHANNEL ID on the right.
 #
+# Format in the environment variable:
+# TWEET_CHANNELS="SERVER_ID:CHANNEL_ID,SERVER_ID:CHANNEL_ID"
 #
-# IMPORTANT: replace the example IDs below with your real IDs.
-TWEET_CHANNELS = {
-    1237973983882907739: 1544405624752705546,  # TEST SERVER
-    1357114661295755304: 1543761033527566387,  # MAIN SERVER
-}
+# Example:
+# TWEET_CHANNELS="123456789012345678:1543761188557426788,987654321098765432:1666666666666666666"
+#
+# You can also keep the old single-channel fallback below. The bot will only
+# use that fallback when the channel actually belongs to the current server.
+
+def _load_tweet_channels():
+    result = {}
+    raw = os.getenv("TWEET_CHANNELS", "").strip()
+    if raw:
+        for item in raw.split(","):
+            item = item.strip()
+            if not item or ":" not in item:
+                continue
+            guild_id, channel_id = item.split(":", 1)
+            if guild_id.strip().isdigit() and channel_id.strip().isdigit():
+                gid = int(guild_id.strip())
+                cid = int(channel_id.strip())
+                if gid > 0 and cid > 0:
+                    result[gid] = cid
+    return result
+
+TWEET_CHANNELS = _load_tweet_channels()
+
+# Optional default for the original test server/channel.
+# This is safe because the bot verifies that the channel belongs to the current guild.
+TWEET_FALLBACK_CHANNEL_ID = int(os.getenv("TWEET_FALLBACK_CHANNEL_ID", "1543761188557426788"))
+
+
+def get_tweet_channel(guild: discord.Guild):
+    """Return the configured Tweet channel for this guild, or None."""
+    if not guild:
+        return None
+
+    # 1) Exact per-server configuration.
+    channel_id = TWEET_CHANNELS.get(guild.id)
+    if channel_id:
+        channel = guild.get_channel(channel_id)
+        if isinstance(channel, discord.TextChannel):
+            return channel
+
+    # 2) Old fallback, but ONLY if it belongs to this server.
+    if TWEET_FALLBACK_CHANNEL_ID:
+        channel = guild.get_channel(TWEET_FALLBACK_CHANNEL_ID)
+        if isinstance(channel, discord.TextChannel):
+            return channel
+
+    # 3) Helpful automatic fallback for channels named tweets/tweet.
+    names = {
+        "tweets", "tweet", "🐦-tweets", "🐦tweets",
+        "🐦・tweets", "🐦・tweet", "tweet-room", "tweet-room"
+    }
+    for channel in guild.text_channels:
+        if channel.name.lower() in names:
+            return channel
+
+    return None
+
 
 # 🎭 ROLE IDs — change the numbers only
 ROLE_IDS = {
@@ -1182,129 +1233,78 @@ class TweetModal(Modal):
     async def on_submit(self, interaction: Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        # ==========================================
-        # 1. CHECK SERVER
-        # ==========================================
-        if not interaction.guild:
+        guild = interaction.guild
+        if guild is None:
             return await interaction.followup.send(
                 "❌ Tweets can only be used inside a server.",
-                ephemeral=True
+                ephemeral=True,
             )
 
-        guild = interaction.guild
-
-        # ==========================================
-        # 2. GET TWEET CHANNEL FOR THIS SERVER
-        # ==========================================
-        post_channel_id = TWEET_CHANNELS.get(guild.id)
-
-        if not post_channel_id:
-            return await interaction.followup.send(
-                f"❌ Tweets are not configured for **{guild.name}**.\n\n"
-                f"Server ID: `{guild.id}`",
-                ephemeral=True
-            )
-
-        # ==========================================
-        # 3. GET CHANNEL
-        # ==========================================
-        post_channel = guild.get_channel(post_channel_id)
-
-        # If channel isn't cached, fetch it directly
-        if post_channel is None:
-            try:
-                post_channel = await bot.fetch_channel(post_channel_id)
-            except discord.NotFound:
-                return await interaction.followup.send(
-                    "❌ Tweet channel does not exist anymore.\n\n"
-                    f"Channel ID: `{post_channel_id}`",
-                    ephemeral=True
-                )
-            except discord.Forbidden:
-                return await interaction.followup.send(
-                    "❌ I cannot access the Tweet channel.\n\n"
-                    f"Channel ID: `{post_channel_id}`",
-                    ephemeral=True
-                )
-            except discord.HTTPException as e:
-                print(f"[TWEET] Channel fetch error: {e!r}")
-                return await interaction.followup.send(
-                    "❌ Discord returned an error while loading the Tweet channel.",
-                    ephemeral=True
-                )
-
-        # ==========================================
-        # 4. MAKE SURE CHANNEL BELONGS TO THIS SERVER
-        # ==========================================
-        if getattr(post_channel, "guild", None) is None:
-            return await interaction.followup.send(
-                "❌ The configured Tweet channel is invalid.",
-                ephemeral=True
-            )
-
-        if post_channel.guild.id != guild.id:
-            return await interaction.followup.send(
-                "❌ The configured Tweet channel belongs to another server.\n\n"
-                f"Current Server: `{guild.id}`\n"
-                f"Configured Channel: `{post_channel_id}`",
-                ephemeral=True
-            )
+        # Get the Tweet channel specifically for this server.
+        post_channel = get_tweet_channel(guild)
 
         if not isinstance(post_channel, discord.TextChannel):
+            configured = TWEET_CHANNELS.get(guild.id)
+            configured_text = f"`{configured}`" if configured else "not configured"
             return await interaction.followup.send(
-                "❌ The configured Tweet channel is not a normal text channel.",
-                ephemeral=True
+                "❌ I couldn't find a Tweet channel for this server.\n\n"
+                f"Server ID: `{guild.id}`\n"
+                f"Configured Tweet Channel: {configured_text}\n\n"
+                "Set this in Railway/environment variables as:\n"
+                "`TWEET_CHANNELS=SERVER_ID:CHANNEL_ID`",
+                ephemeral=True,
             )
 
-        # ==========================================
-        # 5. CHECK BOT PERMISSIONS
-        # ==========================================
+        # Make absolutely sure the selected channel belongs to THIS guild.
+        if post_channel.guild.id != guild.id:
+            return await interaction.followup.send(
+                "❌ The configured Tweet channel belongs to another server.",
+                ephemeral=True,
+            )
+
+        # Discord permission check for the bot member in this exact channel.
         me = guild.me
+        if me is None:
+            try:
+                me = await guild.fetch_member(bot.user.id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                me = None
 
         if me is not None:
-            permissions = post_channel.permissions_for(me)
-            missing_permissions = []
+            perms = post_channel.permissions_for(me)
+            missing = []
 
-            if not permissions.view_channel:
-                missing_permissions.append("View Channel")
-            if not permissions.send_messages:
-                missing_permissions.append("Send Messages")
-            if not permissions.embed_links:
-                missing_permissions.append("Embed Links")
-            if not permissions.attach_files:
-                missing_permissions.append("Attach Files")
+            if not perms.view_channel:
+                missing.append("View Channel")
+            if not perms.send_messages:
+                missing.append("Send Messages")
+            if not perms.embed_links:
+                missing.append("Embed Links")
+            if not perms.attach_files:
+                missing.append("Attach Files")
 
-            if missing_permissions:
+            if missing and not perms.administrator:
                 return await interaction.followup.send(
                     "❌ I don't have the required permissions in the Tweet channel.\n\n"
-                    "**Missing:** "
-                    + ", ".join(f"`{p}`" for p in missing_permissions)
+                    + "Missing: " + ", ".join(f"`{x}`" for x in missing)
                     + f"\n\nChannel: {post_channel.mention}",
-                    ephemeral=True
+                    ephemeral=True,
                 )
 
-        # ==========================================
-        # 6. GET TWEET TEXT
-        # ==========================================
         tweet_text = " ".join(self.thought.value.strip().split())
         now = datetime.now(timezone.utc)
 
-        # ==========================================
-        # 7. CREATE TWEET IMAGE
-        # ==========================================
         try:
             image_bytes = await create_tweet_image(
                 interaction.user,
                 tweet_text,
-                self.theme
+                self.theme,
             )
-        except Exception as e:
-            print(f"[TWEET IMAGE ERROR] {e!r}")
+        except Exception as exc:
+            print(f"[TWEET IMAGE] Creation failed: {type(exc).__name__}: {exc!r}")
             image_bytes = None
 
-        # ==========================================
-        # 8. CREATE EMBED
-        # ==========================================
+        # The Discord embed is the frame; the actual tweet design is the image.
         embed = discord.Embed(
             title=f"🐦 New Tweet By · @{interaction.user.name}",
             color=0x111318 if self.theme == "dark" else 0xE8EBF0,
@@ -1312,14 +1312,11 @@ class TweetModal(Modal):
         )
         embed.set_footer(text="Dark Night Community • Share your thoughts")
 
-        # ==========================================
-        # 9. SEND TWEET
-        # ==========================================
         try:
             if image_bytes is not None:
                 file = discord.File(
                     image_bytes,
-                    filename="dark_night_tweet.png"
+                    filename="dark_night_tweet.png",
                 )
                 embed.set_image(url="attachment://dark_night_tweet.png")
 
@@ -1344,45 +1341,52 @@ class TweetModal(Modal):
                     ),
                 )
 
-        except discord.Forbidden:
-            print(
-                f"[TWEET ERROR] Forbidden | Guild={guild.id} "
-                f"| Channel={post_channel.id}"
-            )
+        except discord.Forbidden as exc:
+            print("\n" + "=" * 70)
+            print("[TWEET] DISCORD FORBIDDEN")
+            print(f"Guild       : {guild.name} ({guild.id})")
+            print(f"Channel     : {post_channel.name} ({post_channel.id})")
+            print(f"Bot         : {bot.user} ({bot.user.id if bot.user else 'unknown'})")
+            if me is not None:
+                print(f"Bot role    : {me.top_role.name} ({me.top_role.id})")
+                p = post_channel.permissions_for(me)
+                print(f"View        : {p.view_channel}")
+                print(f"Send        : {p.send_messages}")
+                print(f"Embed       : {p.embed_links}")
+                print(f"Attach      : {p.attach_files}")
+                print(f"Admin       : {p.administrator}")
+            print(f"Exception   : {exc!r}")
+            print("=" * 70 + "\n")
+
             return await interaction.followup.send(
                 "❌ Discord refused the message.\n\n"
-                "Check the Tweet channel permissions:\n"
-                "• `View Channel`\n"
-                "• `Send Messages`\n"
-                "• `Embed Links`\n"
-                "• `Attach Files`",
-                ephemeral=True
+                "The bot reached the correct Tweet channel, but Discord blocked the send.\n"
+                "Check the channel/category permissions for the bot role.\n\n"
+                "Required: `View Channel`, `Send Messages`, `Embed Links`, `Attach Files`.",
+                ephemeral=True,
             )
 
-        except discord.HTTPException as e:
+        except discord.HTTPException as exc:
             print(
-                f"[TWEET ERROR] HTTPException | Guild={guild.id} "
-                f"| Channel={post_channel.id} | Error={e!r}"
+                f"[TWEET] HTTP error | Guild={guild.id} | "
+                f"Channel={post_channel.id} | {type(exc).__name__}: {exc!r}"
             )
             return await interaction.followup.send(
-                f"❌ Discord returned an error while posting the tweet.\n`{e}`",
-                ephemeral=True
+                f"❌ Discord returned an HTTP error: `{type(exc).__name__}`.",
+                ephemeral=True,
             )
 
-        except Exception as e:
+        except Exception as exc:
             print(
-                f"[TWEET ERROR] Unexpected error | Guild={guild.id} "
-                f"| Channel={post_channel.id} | Error={e!r}"
+                f"[TWEET] Unexpected error | Guild={guild.id} | "
+                f"Channel={post_channel.id} | {type(exc).__name__}: {exc!r}"
             )
             return await interaction.followup.send(
                 "❌ Something went wrong while posting the tweet.\n"
                 "Check the bot console for the exact error.",
-                ephemeral=True
+                ephemeral=True,
             )
 
-        # ==========================================
-        # 10. SUCCESS MESSAGE
-        # ==========================================
         jump_url = (
             f"https://discord.com/channels/"
             f"{guild.id}/{post_channel.id}/{published_message.id}"
@@ -1399,31 +1403,27 @@ class TweetModal(Modal):
 
         await interaction.followup.send(
             embed=success,
-            ephemeral=True
+            ephemeral=True,
         )
 
-        # ==========================================
-        # 11. AUDIT LOG
-        # ==========================================
-        await send_audit_log(
-            guild,
-            title="🐦 Tweet Published",
-            actor=interaction.user,
-            target=interaction.user,
-            channel=post_channel,
-            extra_fields=[
-                (
-                    "Theme",
-                    "Dark Tweet" if self.theme == "dark" else "White Tweet",
-                    True
-                ),
-                (
-                    "Content",
-                    tweet_text[:1024],
-                    False
-                ),
-            ],
-        )
+        try:
+            await send_audit_log(
+                guild,
+                title="🐦 Tweet Published",
+                actor=interaction.user,
+                target=interaction.user,
+                channel=post_channel,
+                extra_fields=[
+                    (
+                        "Theme",
+                        "Dark Tweet" if self.theme == "dark" else "White Tweet",
+                        True,
+                    ),
+                    ("Content", tweet_text[:1024], False),
+                ],
+            )
+        except Exception as exc:
+            print(f"[TWEET LOG] Failed: {type(exc).__name__}: {exc!r}")
 
 
 class TweetPanelView(View):
