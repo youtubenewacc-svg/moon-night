@@ -10,7 +10,6 @@ from datetime import timedelta, datetime, timezone
 import discord
 import yt_dlp
 
-# Optional at runtime, but required by requirements.txt for the tweet artwork.
 try:
     from PIL import Image, ImageDraw, ImageFont, ImageOps
     PIL_OK = True
@@ -35,7 +34,6 @@ from discord import app_commands, Interaction, ButtonStyle
 from discord.ui import View, Button, Select, Modal, TextInput
 
 
-# Voice dependency diagnostics
 try:
     import nacl
     PYNACL_OK = True
@@ -50,8 +48,6 @@ except Exception as exc:
     DAVEY_OK = False
     print(f"[VOICE DEPENDENCY] davey unavailable: {exc!r}")
 
-# discord.py needs the native Opus library for voice encoding.
-# Railway/Nixpacks may place libopus inside /nix/store instead of /usr/lib.
 OPUS_OK = False
 
 try:
@@ -74,9 +70,6 @@ try:
             "/usr/local/lib/libopus.so.0",
         ]
 
-        # Nixpacks/Nix installs packages under /nix/store.
-        # Find libopus there automatically so the bot does not depend
-        # on one hard-coded Nix store hash/version.
         opus_candidates.extend(glob.glob(
             "/nix/store/*-libopus-*/lib/libopus.so.0"
         ))
@@ -90,7 +83,6 @@ try:
             "/nix/store/*opus*/lib/libopus.so"
         ))
 
-        # Remove duplicates while preserving order.
         seen = set()
         opus_candidates = [
             x for x in opus_candidates
@@ -128,45 +120,38 @@ print(
     f"Opus={OPUS_OK}"
 )
 
-# ==========================================
-# EASY CUSTOMIZATION — CHANGE YOUR SETTINGS HERE
-# ==========================================
-# This is the only section you normally need to edit.
-# IDs = Discord IDs. Emojis = custom emoji code. Images = image/banner URLs.
-# Put 0 for WELCOME/LEAVE if you want those features disabled.
-# ==========================================
+# EASY CUSTOMIZATION
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# 👑 OWNER / LOGGING / IMPORTANT CHANNELS
-OWNER_ID = int(os.getenv("OWNER_ID", "1543760628093558794"))          # 👑 Bot owner ID
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))  # 🧑‍💼 Legacy / Apply log channel
-GENERAL_LOG_CHANNEL_ID = int(os.getenv("GENERAL_LOG_CHANNEL_ID", "0"))    # 🧾 General server audit log
-APPLY_LOG_CHANNEL_ID = int(os.getenv("APPLY_LOG_CHANNEL_ID", str(LOG_CHANNEL_ID)))  # 🧑‍💼 Apply/application log
-JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))                  # ⛓️ Jail role
-PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))        # 🛡️ Protected role (optional)
-WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))      # 👋 Welcome channel; 0 = off
-LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))          # 💔 Leave channel; 0 = off
-TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1543761017342005413")) # 🔊 Temp VC creator
-TEMP_VC_DEFAULT_LIMIT = int(os.getenv("TEMP_VC_DEFAULT_LIMIT", "0"))  # 👥 0 = unlimited
-TEMP_VC_NAME_PREFIX = os.getenv("TEMP_VC_NAME_PREFIX", "🔊")  # 🔊 Temp room prefix
+# OWNER / LOGGING / IMPORTANT CHANNELS
+OWNER_ID = int(os.getenv("OWNER_ID", "1543760628093558794"))
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1544405575314440342"))
+GENERAL_LOG_CHANNEL_ID = int(os.getenv("GENERAL_LOG_CHANNEL_ID", "0"))
+APPLY_LOG_CHANNEL_ID = int(os.getenv("APPLY_LOG_CHANNEL_ID", str(LOG_CHANNEL_ID)))
+JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))
+PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))
+LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))
+TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1543761017342005413"))
+TEMP_VC_DEFAULT_LIMIT = int(os.getenv("TEMP_VC_DEFAULT_LIMIT", "0"))
+TEMP_VC_NAME_PREFIX = os.getenv("TEMP_VC_NAME_PREFIX", "🔊")
 
-# 📌 CHANNEL IDs — change the numbers only
+# CHANNEL IDS
 CHANNEL_IDS = {
-    "news": 1482902413554745638,        # 📰 News
-    "rules": 1482902414997852381,       # 📜 Rules
-    "self_roles": 1482902461168615465,  # 🎭 Self roles
-    "apply": 1482902427064864833,       # 🧑‍💼 Apply/team
-    "general": 1482902490549850184,     # 💬 General
-    "commands": 1482902491711541328,    # 🤖 Bot commands
-    "temp_voice": 1482902422065123338,  # 🔊 Temporary VC
+    "news": 1482902413554745638,
+    "rules": 1482902414997852381,
+    "self_roles": 1482902461168615465,
+    "apply": 1482902427064864833,
+    "general": 1482902490549850184,
+    "commands": 1482902491711541328,
+    "temp_voice": 1482902422065123338,
 
-    # 🧵 THREAD ROOMS
-    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
-    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
+# THREAD ROOMS
+    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),
+    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),
 }
 
-# 🐦 TWEET CHANNELS PER SERVER
-#
+# TWEET CHANNELS PER SERVER
 def _load_tweet_channels():
     result = {}
     raw = os.getenv("TWEET_CHANNELS", "1357114661295755304:1543761188557426788").strip()
@@ -185,11 +170,8 @@ def _load_tweet_channels():
 
 TWEET_CHANNELS = _load_tweet_channels()
 
-# Optional default for the original test server/channel.
-# This is safe because the bot verifies that the channel belongs to the current guild.
 TWEET_FALLBACK_CHANNEL_ID = int(os.getenv("TWEET_FALLBACK_CHANNEL_ID", "1543761188557426788"))
 
-# Panel room for the Tweets button/panel.
 TWEET_PANEL_CHANNEL_ID = int(os.getenv("TWEET_PANEL_CHANNEL_ID", "1543761186917449829"))
 
 def _load_tweet_panel_channels():
@@ -210,9 +192,6 @@ def _load_tweet_panel_channels():
 
 TWEET_PANEL_CHANNELS = _load_tweet_panel_channels()
 
-# Optional channel in another server where the bot is allowed to upload files.
-# This is used as a Discord CDN image host when the target server blocks uploads.
-# Leave it at 0 to auto-detect a usable channel in another guild.
 TWEET_IMAGE_HOST_CHANNEL_ID = int(os.getenv("TWEET_IMAGE_HOST_CHANNEL_ID", "0"))
 
 
@@ -221,20 +200,17 @@ def get_tweet_channel(guild: discord.Guild):
     if not guild:
         return None
 
-    # 1) Exact per-server configuration.
     channel_id = TWEET_CHANNELS.get(guild.id)
     if channel_id:
         channel = guild.get_channel(channel_id)
         if isinstance(channel, discord.TextChannel):
             return channel
 
-    # 2) Old fallback, but ONLY if it belongs to this server.
     if TWEET_FALLBACK_CHANNEL_ID:
         channel = guild.get_channel(TWEET_FALLBACK_CHANNEL_ID)
         if isinstance(channel, discord.TextChannel):
             return channel
 
-    # 3) Helpful automatic fallback for channels named tweets/tweet.
     names = {
         "tweets", "tweet", "🐦-tweets", "🐦tweets",
         "🐦・tweets", "🐦・tweet", "tweet-room", "tweet-room"
@@ -246,56 +222,49 @@ def get_tweet_channel(guild: discord.Guild):
     return None
 
 
-# 🎭 ROLE IDs — change the numbers only
+# ROLE IDS
 ROLE_IDS = {
-    # 🚀 Booster roles
-    "booster_nickname": 1543760781441499267,
-    "booster_moon": 1543760736659054653,
-    "booster_soundboard": 1543760782393745438,
-    "booster_pic": 1543760780506431658,
-    "booster_link": 1543760779583561848,
-    "booster_bughunter": 1543760735325261866,
-    "booster_vip": 1543760734662565992,
-    "booster_special": 1543760728391950428,
-
-    # 💘 Situation roles
-    "heartless": 1543760809820168232,
-    "taken": 1543760811737088101,
-    "single": 1543760812869419098,
-
-    # 🧑 Gender roles
+    "booster_nickname": 1523714779032584363,
+    "booster_moon": 1508497154313027675,
+    "booster_soundboard": 1482902118137462896,
+    "booster_pic": 1482902117693001898,
+    "booster_link": 1482902116858331217,
+    "booster_bughunter": 1482902047236952117,
+    "booster_vip": 1482902046653943870,
+    "booster_special": 1482902043558547650,
+    "heartless": 1482902155219304549,
+    "taken": 1482902157324849333,
+    "single": 1482902156364484661,
     "female": 1543760795349946458,
     "male": 1543760793726750790,
     "trans": 1545555471564415017,
-
-    #  games roles are resolved automatically by their server role name
     "valorant": 1543760829667745842,
     "freefire": 1543760828598190100,
     "pubg": 1543760842342801569,
     "chess": 1543760830762590209,
     "bloodstrike": 1543760843412344882,
-    "mafia_vip": 1543760822805860452,
-    "among_us_vip": 1543760823913287862,
-    "among_us": 1543760825590878269,
-    "gta5": 1543760826652041268,
-    "minecraft": 1543760832888967249,
-    "pes": 1543760834369421334,
-    "roblox": 1543760835397030070,
-    "stumble_guys": 1543760837066625084,
-    "brawlhalla": 1543760837846765671,
-    "counter_strike": 1543760839167709266,
-    "league_of_legends": 1543760840040386640,
-    "mafia": 1543760841042698241,
-    "fortnite": 1543760844590948362,
-    "parchisi": 1543760845723410492,
-    "call_of_duty": 1543760847220768850,
-    "plato": 1543760848689037382,
-    "code_names": 1543760849624113273,
-    "fifa": 1543760850320621603,
-    "rocket_league": 1543760852425904138,
+    "mafia_vip": 0,
+    "among_us_vip": 0,
+    "among_us": 0,
+    "gta5": 0,
+    "minecraft": 0,
+    "pes": 0,
+    "roblox": 0,
+    "stumble_guys": 0,
+    "brawlhalla": 0,
+    "counter_strike": 0,
+    "league_of_legends": 0,
+    "mafia": 0,
+    "fortnite": 0,
+    "parchisi": 0,
+    "call_of_duty": 0,
+    "plato": 0,
+    "code_names": 0,
+    "fifa": 0,
+    "rocket_league": 0,
 }
 
-# 😀 CUSTOM DISCORD EMOJIS — replace the value in quotes
+# CUSTOM DISCORD EMOJIS
 EMOJIS = {
     "hi": "<:theCall_pink_hi:1509305726655402185>",
     "instagram": "<:INSTA:1532413334261993602>",
@@ -321,22 +290,21 @@ EMOJIS = {
     "click": "<a:clickheaven:1400671930834747432>",
 }
 
-# 🖼️ COMMUNITY IMAGES
-# Replace these URLs with your own Discord CDN image links whenever you want.
-# No external image host is required.
+# COMMUNITY IMAGES
+
 COMMUNITY_IMAGE_URL = os.getenv(
     "COMMUNITY_IMAGE_URL",
-    "https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9d440a&is=6a9bf28a&hm=7fd8183b5d3e247e74e27f6e3e9d85a9fbfe73349f643863474d5174e9fb5cbb&"
+    "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png"
 )
 TWEET_PANEL_IMAGE_URL = os.getenv("TWEET_PANEL_IMAGE_URL", COMMUNITY_IMAGE_URL)
 
 IMAGES = {
-    "moon_logo": "https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9d440a&is=6a9bf28a&hm=7fd8183b5d3e247e74e27f6e3e9d85a9fbfe73349f643863474d5174e9fb5cbb&",
-    "panel_banner": "https://klipy.com/gifs/popopo",
-    "role_request": "",  # Leave empty to disable the role-request banner.
+    "moon_logo": COMMUNITY_IMAGE_URL,
+    "panel_banner": COMMUNITY_IMAGE_URL,
+    "role_request": "",
 }
 
-# 🔗 LINKS — change these when your socials/community links change
+
 LINKS = {
     "instagram": "https://instagram.com",
     "tiktok": "https://tiktok.com",
@@ -350,7 +318,7 @@ LINKS = {
 XP_COOLDOWN = 45
 DATA_FILE = "moon_night_data.json"
 
-# Music / Voice settings
+# MUSIC / VOICE SETTINGS
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
     "noplaylist": True,
@@ -361,14 +329,10 @@ YTDL_OPTIONS = {
 }
 FFMPEG_BEFORE_OPTIONS = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
-# 🎨 Embed color — change this HEX if you want another theme color.
+# EMBED COLOR
 EMBED_COLOR = 0x2b2d31
 
-# 🧾 AUDIT / SERVER LOG ROOMS
-# Put one or more channel IDs here, separated by commas.
-# Example: "123456789012345678,987654321098765432"
-# General audit logs are kept separate from Apply logs.
-# You can still use AUDIT_LOG_CHANNEL_IDS for multiple general log rooms.
+# AUDIT / SERVER LOG ROOMS
 _general_log_env = os.getenv("AUDIT_LOG_CHANNEL_IDS", "")
 if _general_log_env.strip():
     AUDIT_LOG_CHANNEL_IDS = [
@@ -379,10 +343,8 @@ if _general_log_env.strip():
 else:
     AUDIT_LOG_CHANNEL_IDS = [GENERAL_LOG_CHANNEL_ID] if GENERAL_LOG_CHANNEL_ID > 0 else []
 
-# How far back we search Discord Audit Logs to match the action with its actor.
 AUDIT_MATCH_SECONDS = 20
 
-# 🧾 Log appearance / emoji — easy to customize from this section.
 LOG_EMOJIS = {
     "member_join": "📥",
     "member_leave": "📤",
@@ -426,9 +388,7 @@ intents.members = True
 intents.message_content = True
 
 
-# ==========================================
 # MODERATION / SERVER INFO HELPERS
-# ==========================================
 PROTECTED_USERS = set()
 SERVER_PEAK_MEMBERS = {}
 
@@ -493,9 +453,7 @@ def get_protected_role(guild: discord.Guild):
     return discord.utils.get(guild.roles, name="Protected")
 
 
-# ==========================================
 # COMMUNITY / GAMES DATA
-# ==========================================
 DEFAULT_DATA = {
     "economy": {},
     "xp": {},
@@ -518,7 +476,7 @@ def load_data():
 DATA = load_data()
 XP_LAST_MESSAGE = {}
 TEMP_VCS = {}
-TEMP_VC_META = {}  # channel_id -> {owner, locked, limit, created_at}
+TEMP_VC_META = {}
 MAFIA_GAMES = {}
 
 def save_data():
@@ -578,7 +536,6 @@ class DarkNightBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # Register persistent views so buttons stay active after restart
         self.add_view(SocialsView())
         self.add_view(RulesView())
         self.add_view(ApplyView())
@@ -591,7 +548,7 @@ class DarkNightBot(commands.Bot):
         self.add_view(VoicePanelControlView())
         self.add_view(GamesCenterView())
         self.add_view(TempVCControlView())
-        
+
         await self.tree.sync()
         print("Slash Commands Synced & Persistent Views Registered Successfully!")
 
@@ -606,9 +563,7 @@ def is_owner_or_admin():
     return app_commands.check(predicate)
 
 
-# ==========================================
-# 1. SOCIALS PANEL
-# ==========================================
+# SOCIALS PANEL
 class SocialsView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -634,9 +589,7 @@ def get_socials_embed():
     return embed
 
 
-# ==========================================
-# 2. STATS PANEL
-# ==========================================
+# STATS PANEL
 class StatsView(View):
     def __init__(self, guild: discord.Guild):
         super().__init__(timeout=None)
@@ -666,9 +619,7 @@ def get_stats_embed(guild: discord.Guild):
     return embed
 
 
-# ==========================================
-# 3. RULES PANEL
-# ==========================================
+# RULES PANEL
 class RulesView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -699,9 +650,7 @@ def get_rules_embed():
     return embed
 
 
-# ==========================================
-# 4. GUIDMAP / SERVER MAP PANEL
-# ==========================================
+# GUIDMAP / SERVER MAP PANEL
 def get_map_embed():
     embed = discord.Embed(
         title=f"{EMOJIS['welcome']} ◜__Welcome To Dark Night!__◞",
@@ -728,9 +677,7 @@ def get_map_embed():
     return embed
 
 
-# ==========================================
-# 5. APPLY TEAM PANEL
-# ==========================================
+# APPLY TEAM PANEL
 class ApplyModal(Modal, title="Staff Application Form"):
     age = TextInput(label="How old are you?", placeholder="e.g. 18", min_length=1, max_length=2)
     experience = TextInput(label="Experience & Active Time", style=discord.TextStyle.paragraph, placeholder="Describe your experience...")
@@ -790,9 +737,7 @@ def get_apply_embed():
     return embed
 
 
-# ==========================================
-# 6. BOOSTERS PERKS / ROLE PANEL
-# ==========================================
+# BOOSTERS PERKS / ROLE PANEL
 class BoosterRolesView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -813,20 +758,18 @@ class BoosterRolesView(View):
 
     def create_booster_button(self, label: str, role_id: int):
         button = Button(label=f"• {label}", style=ButtonStyle.secondary, custom_id=f"booster_{role_id}")
-        
+
         async def button_callback(interaction: Interaction):
             role = interaction.guild.get_role(role_id)
             if not role:
                 return await interaction.response.send_message("❌ Role not found on server!", ephemeral=True)
-            
-            # Only current server boosters can use booster perks.
+
             if not interaction.user.premium_since:
                 return await interaction.response.send_message(
                     "🚀 **Booster Only!** You need to be boosting this server to use these perks.",
                     ephemeral=True
                 )
 
-            # Only one booster perk role at a time.
             booster_role_ids = {
                 ROLE_IDS["booster_nickname"],
                 ROLE_IDS["booster_moon"],
@@ -886,14 +829,9 @@ def get_booster_embed():
     return embed
 
 
-# ==========================================
-# 7. SELF ROLES PANEL (SITUATIONS, GENDER, GAMES)
-# ==========================================
-# ROLE_IDS is configured in the EASY CUSTOMIZATION section at the top.
+# SELF ROLES PANEL
 
 
-# 🎮 Games role names as they appear in the server.
-# Matching is case-insensitive and ignores spaces/underscores/hyphens.
 GAMES_ROLE_NAMES = {
     "valorant": "Valorant",
     "freefire": "Free Fire",
@@ -931,12 +869,17 @@ def get_configured_role(guild: discord.Guild, role_key: str):
         return None
 
     role_id = ROLE_IDS.get(role_key, 0)
+    if not role_id and role_key.startswith("role_"):
+        role_id = ROLE_IDS.get(role_key[5:], 0)
+
     if role_id:
         role = guild.get_role(role_id)
         if role:
             return role
 
     expected_name = GAMES_ROLE_NAMES.get(role_key)
+    if not expected_name and role_key.startswith("role_"):
+        expected_name = GAMES_ROLE_NAMES.get(role_key[5:])
     if not expected_name:
         return None
 
@@ -950,10 +893,10 @@ def get_configured_role(guild: discord.Guild, role_key: str):
 
 async def toggle_role(interaction: Interaction, role_key: str):
     role = get_configured_role(interaction.guild, role_key)
-    
+
     if not role:
         return await interaction.response.send_message(f"❌ Role for `{role_key}` is not configured or not found!", ephemeral=True)
-        
+
     if role in interaction.user.roles:
         await interaction.user.remove_roles(role, reason=f"Self-role removal by {interaction.user} ({interaction.user.id})")
         await interaction.response.send_message(f"➖ Removed **{role.name}**!", ephemeral=True)
@@ -965,7 +908,6 @@ async def toggle_role(interaction: Interaction, role_key: str):
         action = "Role Added"
         emoji = "➕"
 
-    # These role buttons know the exact channel where the action happened.
     await send_audit_log(
         interaction.guild,
         title=action,
@@ -1017,30 +959,30 @@ class GamesRolesView(View):
         min_values=1,
         max_values=1,
         options=[
-            discord.SelectOption(label="Mafia VIP 9", description="Select for Mafia VIP Role", value="mafia_vip", emoji="🎭"),
-            discord.SelectOption(label="Among Us VIP", description="Select for Among Us VIP Role", value="among_us_vip", emoji="🔷"),
-            discord.SelectOption(label="Among Us", description="Select for Among Us Role", value="among_us", emoji="👨‍🚀"),
-            discord.SelectOption(label="GTA 5", description="Select for GTA 5 Role", value="gta5", emoji="🚗"),
-            discord.SelectOption(label="Free Fire", description="Select for Free Fire Role", value="freefire", emoji="🔥"),
-            discord.SelectOption(label="Valorant", description="Select for Valorant Role", value="valorant", emoji="🎮"),
-            discord.SelectOption(label="Chess", description="Select for Chess Role", value="chess", emoji="♟️"),
-            discord.SelectOption(label="Minecraft", description="Select for Minecraft Role", value="minecraft", emoji="⛏️"),
-            discord.SelectOption(label="Pes", description="Select for PES Role", value="pes", emoji="⚽"),
-            discord.SelectOption(label="Roblox", description="Select for Roblox Role", value="roblox", emoji="🟥"),
-            discord.SelectOption(label="Stumble Guys", description="Select for Stumble Guys Role", value="stumble_guys", emoji="🏃"),
-            discord.SelectOption(label="Brawlhalla", description="Select for Brawlhalla Role", value="brawlhalla", emoji="⚔️"),
-            discord.SelectOption(label="Counter Strike", description="Select for Counter Strike Role", value="counter_strike", emoji="🔫"),
-            discord.SelectOption(label="League Of Legends", description="Select for League Of Legends Role", value="league_of_legends", emoji="🏆"),
-            discord.SelectOption(label="Mafia", description="Select for Mafia Role", value="mafia", emoji="🕵️"),
-            discord.SelectOption(label="Pubg Mobile", description="Select for PUBG Mobile Role", value="pubg", emoji="🔫"),
-            discord.SelectOption(label="Blood strike", description="Select for Blood Strike Role", value="bloodstrike", emoji="⚔️"),
-            discord.SelectOption(label="Fortnite", description="Select for Fortnite Role", value="fortnite", emoji="🪂"),
-            discord.SelectOption(label="Parchisi", description="Select for Parchisi Role", value="parchisi", emoji="🎲"),
-            discord.SelectOption(label="Call Of Duty", description="Select for Call Of Duty Role", value="call_of_duty", emoji="💥"),
-            discord.SelectOption(label="Plato", description="Select for Plato Role", value="plato", emoji="🎯"),
-            discord.SelectOption(label="Code Names", description="Select for Code Names Role", value="code_names", emoji="🧩"),
-            discord.SelectOption(label="FIFA", description="Select for FIFA Role", value="fifa", emoji="⚽"),
-            discord.SelectOption(label="Rocket league", description="Select for Rocket League Role", value="rocket_league", emoji="🚀"),
+            discord.SelectOption(label="Mafia VIP 9", value="mafia_vip", emoji="🎭"),
+            discord.SelectOption(label="Among Us VIP", value="among_us_vip", emoji="🔷"),
+            discord.SelectOption(label="Among Us", value="among_us", emoji="👨‍🚀"),
+            discord.SelectOption(label="GTA 5", value="gta5", emoji="🚗"),
+            discord.SelectOption(label="Free Fire", value="freefire", emoji="🔥"),
+            discord.SelectOption(label="Valorant", value="valorant", emoji="🎮"),
+            discord.SelectOption(label="Chess", value="chess", emoji="♟️"),
+            discord.SelectOption(label="Minecraft", value="minecraft", emoji="⛏️"),
+            discord.SelectOption(label="Pes", value="pes", emoji="⚽"),
+            discord.SelectOption(label="Roblox", value="roblox", emoji="🟥"),
+            discord.SelectOption(label="Stumble Guys", value="stumble_guys", emoji="🏃"),
+            discord.SelectOption(label="Brawlhalla", value="brawlhalla", emoji="⚔️"),
+            discord.SelectOption(label="Counter Strike", value="counter_strike", emoji="🔫"),
+            discord.SelectOption(label="League Of Legends", value="league_of_legends", emoji="🏆"),
+            discord.SelectOption(label="Mafia", value="mafia", emoji="🕵️"),
+            discord.SelectOption(label="Pubg Mobile", value="pubg", emoji="🔫"),
+            discord.SelectOption(label="Blood strike", value="bloodstrike", emoji="⚔️"),
+            discord.SelectOption(label="Fortnite", value="fortnite", emoji="🪂"),
+            discord.SelectOption(label="Parchisi", value="parchisi", emoji="🎲"),
+            discord.SelectOption(label="Call Of Duty", value="call_of_duty", emoji="💥"),
+            discord.SelectOption(label="Plato", value="plato", emoji="🎯"),
+            discord.SelectOption(label="Code Names", value="code_names", emoji="🧩"),
+            discord.SelectOption(label="FIFA", value="fifa", emoji="⚽"),
+            discord.SelectOption(label="Rocket league", value="rocket_league", emoji="🚀"),
         ],
         custom_id="select_games_roles"
     )
@@ -1088,9 +1030,7 @@ def get_self_roles_data():
     ]
 
 
-# ==========================================
-# 8. ROLE REQUEST PANEL (WITH LOGGING)
-# ==========================================
+# ROLE REQUEST PANEL
 class RoleRequestSelect(Select):
     def __init__(self):
         options = [
@@ -1121,7 +1061,7 @@ class RoleRequestSelect(Select):
             )
             log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
             log_embed.set_footer(text="Dark Night Logging System", icon_url=interaction.guild.icon.url if interaction.guild.icon else None)
-            
+
             await log_channel.send(embed=log_embed)
 
 class RoleRequestView(View):
@@ -1155,13 +1095,7 @@ def get_role_request_embed():
 
 
 
-# ==========================================
-# 9. 🐦 DARK NIGHT TWEETS
-# ==========================================
-# Tweets use a generated PNG.
-# If the target guild blocks file uploads (Discord error 400001), the PNG is
-# uploaded to another guild where uploads are allowed and its Discord CDN URL
-# is used in the target embed. This keeps the full tweet artwork.
+# DARK NIGHT TWEETS
 
 TWEET_WIDTH = 1200
 TWEET_HEIGHT = 675
@@ -1244,15 +1178,12 @@ async def create_tweet_image(member: discord.Member, text: str, theme: str):
     image = Image.new("RGBA", (TWEET_WIDTH, TWEET_HEIGHT), bg)
     draw = ImageDraw.Draw(image)
 
-    # Soft decorative background, without any external image or Imgur dependency.
     draw.ellipse((-220, -260, 520, 460), fill=(45, 38, 90, 150) if dark else (219, 229, 255, 255))
     draw.ellipse((850, -240, 1370, 280), fill=(54, 43, 110, 130) if dark else (220, 232, 255, 255))
 
-    # Compact card — intentionally not full-canvas content.
     cx1, cy1, cx2, cy2 = 78, 105, 1122, 570
     draw.rounded_rectangle((cx1, cy1, cx2, cy2), radius=30, fill=card, outline=(74, 70, 90, 255) if dark else (213, 216, 223, 255), width=2)
 
-    # Header branding.
     title_font = _tweet_font(34, True)
     small_font = _tweet_font(20, False)
     name_font = _tweet_font(31, True)
@@ -1263,7 +1194,6 @@ async def create_tweet_image(member: discord.Member, text: str, theme: str):
     draw.text((cx1 + 36, 34), "Dark Night Community", font=title_font, fill=primary)
     draw.text((cx1 + 36, 72), "COMMUNITY TWEET", font=small_font, fill=secondary)
 
-    # Small moon mark, no remote logo required.
     draw.ellipse((1030, 38, 1070, 78), fill=accent)
     draw.ellipse((1044, 30, 1075, 66), fill=bg)
 
@@ -1284,7 +1214,6 @@ async def create_tweet_image(member: discord.Member, text: str, theme: str):
     draw.text((verified_x + 6, ay + 9), "✓", font=check_font, fill=(255,255,255,255))
     draw.text((name_x, ay + 42), f"@{member.name}", font=handle_font, fill=secondary)
 
-    # Theme pill.
     pill_text = "DARK TWEET" if dark else "WHITE TWEET"
     pill_font = _tweet_font(18, True)
     pb = draw.textbbox((0, 0), pill_text, font=pill_font)
@@ -1292,14 +1221,12 @@ async def create_tweet_image(member: discord.Member, text: str, theme: str):
     draw.rounded_rectangle((cx2 - pw - 28, cy1 + 34, cx2 - 28, cy1 + 72), radius=19, fill=accent if dark else (231, 235, 242, 255))
     draw.text((cx2 - pw - 11, cy1 + 43), pill_text, font=pill_font, fill=(255,255,255,255) if dark else primary)
 
-    # Tweet body.
     lines = _tweet_wrap(draw, " ".join(text.strip().split()), body_font, cx2 - cx1 - 90)
     body_y = cy1 + 145
     for line in lines:
         draw.text((cx1 + 38, body_y), line, font=body_font, fill=primary)
         body_y += 48
 
-    # Footer stats in ONE ROW, as requested.
     divider_y = cy2 - 92
     draw.line((cx1 + 38, divider_y, cx2 - 38, divider_y), fill=divider, width=2)
     stats_y = divider_y + 28
@@ -1311,7 +1238,6 @@ async def create_tweet_image(member: discord.Member, text: str, theme: str):
         draw.text((sx + (ib[2]-ib[0]) + 9, stats_y), label, font=stat_font, fill=primary)
         sx += 205
 
-    # Bottom-right time/date and community branding.
     now = datetime.now(timezone.utc)
     time_font = _tweet_font(18, False)
     date_text = now.strftime("%H:%M • %d %B %Y")
@@ -1378,7 +1304,6 @@ async def _find_tweet_image_host_channel(exclude_guild_id: int):
                 score += 100
             if any(word in channel.name.lower() for word in ("tweet", "image", "media", "test", "bot")):
                 score += 25
-            # Prefer channels near the top of the server's normal text-channel list.
             score += max(0, 10 - channel.position)
             candidates.append((score, channel))
 
@@ -1446,7 +1371,6 @@ class TweetModal(Modal):
                 ephemeral=True,
             )
 
-        # Get the Tweet channel specifically for this server.
         post_channel = get_tweet_channel(guild)
 
         if not isinstance(post_channel, discord.TextChannel):
@@ -1461,14 +1385,12 @@ class TweetModal(Modal):
                 ephemeral=True,
             )
 
-        # Make absolutely sure the selected channel belongs to THIS guild.
         if post_channel.guild.id != guild.id:
             return await interaction.followup.send(
                 "❌ The configured Tweet channel belongs to another server.",
                 ephemeral=True,
             )
 
-        # Discord permission check for the bot member in this exact channel.
         me = guild.me
         if me is None:
             try:
@@ -1486,9 +1408,6 @@ class TweetModal(Modal):
                 missing.append("Send Messages")
             if not perms.embed_links:
                 missing.append("Embed Links")
-            # Attach Files is NOT required on the target guild anymore.
-            # If uploads are blocked at guild level, the image is uploaded to
-            # another guild and embedded from the Discord CDN.
 
             if missing and not perms.administrator:
                 return await interaction.followup.send(
@@ -1511,7 +1430,6 @@ class TweetModal(Modal):
             print(f"[TWEET IMAGE] Creation failed: {type(exc).__name__}: {exc!r}")
             image_bytes = None
 
-        # The Discord embed is the frame; the actual tweet design is the image.
         embed = discord.Embed(
             title=f"🐦 New Tweet By · @{interaction.user.name}",
             color=0x111318 if self.theme == "dark" else 0xE8EBF0,
@@ -1522,10 +1440,6 @@ class TweetModal(Modal):
         try:
             image_url = None
 
-            # IMPORTANT: if this guild has Discord's guild-level upload restriction,
-            # upload the PNG in another guild where uploads work, then use the
-            # returned Discord CDN URL in the target embed. No file is uploaded
-            # to the restricted guild.
             if image_bytes is not None:
                 image_url = await _upload_tweet_image_to_discord_cdn(
                     image_bytes,
@@ -1543,8 +1457,6 @@ class TweetModal(Modal):
                     ),
                 )
             elif image_bytes is not None:
-                # If no host channel was found, try the normal attachment once.
-                # This still works automatically on servers where uploads are allowed.
                 image_bytes.seek(0)
                 file = discord.File(image_bytes, filename="dark_night_tweet.png")
                 embed.set_image(url="attachment://dark_night_tweet.png")
@@ -1588,8 +1500,6 @@ class TweetModal(Modal):
             print("=" * 70 + "\n")
 
             if getattr(exc, "code", None) == 400001:
-                # The target guild blocks file uploads. If the CDN-host fallback
-                # was unavailable, post a clean text/embed version instead of failing.
                 fallback_embed = discord.Embed(
                     title=f"🐦 New Tweet By · @{interaction.user.name}",
                     description=tweet_text,
@@ -1760,9 +1670,7 @@ async def threads(interaction: Interaction, destination: app_commands.Choice[str
         )
 
 
-# ==========================================
-# 9. MODERATION COMMANDS
-# ==========================================
+# MODERATION COMMANDS
 
 @bot.tree.command(name="mutechat", description="Timeout a member in chat")
 @app_commands.describe(
@@ -2036,15 +1944,7 @@ async def invite(interaction: Interaction):
     )
 
 
-# ==========================================
-# 🧾 DARK NIGHT — FULL SERVER LOGGING SYSTEM
-# ==========================================
-# Logs are sent to every channel listed in AUDIT_LOG_CHANNEL_IDS.
-# Discord Audit Logs are used whenever possible so the embed shows:
-# 👤 who did it | 🎯 who/what was affected | 📍 exact channel | 📝 reason | ⏰ time
-# Some Discord events (for example a deleted message) do not expose the
-# moderator who deleted it through the Gateway event, so those are marked
-# as "Unknown / Discord did not expose actor" unless an audit entry matches.
+# DARK NIGHT SERVER LOGGING
 
 AUDIT_LAST_SEEN = {}
 INVITE_CACHE = {}
@@ -2085,7 +1985,6 @@ async def _find_audit_entry(guild: discord.Guild, action_name: str, target_id=No
                 break
             if target_id is not None and _entry_target_id(entry) != target_id:
                 continue
-            # Avoid returning the same entry twice after reconnects.
             cache_key = (guild.id, entry.id)
             if cache_key in AUDIT_LAST_SEEN:
                 continue
@@ -2202,7 +2101,6 @@ async def send_audit_log(
     embed.set_footer(text=f"Dark Night • {guild.name} • Server Audit", icon_url=guild_icon)
 
     for log_channel in _log_channel_targets(guild):
-        # Never let a broken logging room crash the bot.
         try:
             await log_channel.send(embed=embed)
         except (discord.Forbidden, discord.HTTPException):
@@ -2254,9 +2152,6 @@ async def detect_used_invite(member: discord.Member):
     return used
 
 
-# ==========================================
-# 👥 MEMBER LOGS
-# ==========================================
 @bot.listen("on_member_join")
 async def audit_member_join(member: discord.Member):
     invite = await detect_used_invite(member)
@@ -2327,7 +2222,6 @@ async def audit_member_update(before: discord.Member, after: discord.Member):
     if before.guild is None:
         return
 
-    # 🎭 Roles added / removed — exact role names and IDs.
     before_roles = {r.id: r for r in before.roles if r.is_default() is False}
     after_roles = {r.id: r for r in after.roles if r.is_default() is False}
     added = [after_roles[rid] for rid in after_roles.keys() - before_roles.keys()]
@@ -2349,7 +2243,6 @@ async def audit_member_update(before: discord.Member, after: discord.Member):
             extra_fields=fields,
         )
 
-    # 👤 Nickname / timeout / profile changes.
     changes = []
     if before.nick != after.nick:
         changes.append(("🏷️ Nickname", f"`{before.nick or 'None'}` → `{after.nick or 'None'}`", True))
@@ -2370,9 +2263,6 @@ async def audit_member_update(before: discord.Member, after: discord.Member):
         )
 
 
-# ==========================================
-# 🎭 ROLE LOGS
-# ==========================================
 @bot.listen("on_guild_role_create")
 async def audit_role_create(role: discord.Role):
     entry = await _find_audit_entry(role.guild, "role_create", role.id)
@@ -2422,9 +2312,6 @@ async def audit_role_update(before: discord.Role, after: discord.Role):
         )
 
 
-# ==========================================
-# 📁 CHANNEL / THREAD LOGS
-# ==========================================
 @bot.listen("on_guild_channel_create")
 async def audit_channel_create(channel: discord.abc.GuildChannel):
     entry = await _find_audit_entry(channel.guild, "channel_create", channel.id)
@@ -2504,9 +2391,6 @@ async def audit_thread_update(before: discord.Thread, after: discord.Thread):
         )
 
 
-# ==========================================
-# 💬 MESSAGE LOGS
-# ==========================================
 @bot.listen("on_raw_message_delete")
 async def audit_message_delete(payload: discord.RawMessageDeleteEvent):
     channel = bot.get_channel(payload.channel_id)
@@ -2541,7 +2425,6 @@ async def audit_message_edit(payload: discord.RawMessageUpdateEvent):
     channel = bot.get_channel(payload.channel_id)
     if not channel or not getattr(channel, "guild", None):
         return
-    # Ignore edits generated by the bot itself to keep the audit room clean.
     author_id = None
     data = getattr(payload, "data", {}) or {}
     author = data.get("author") or {}
@@ -2566,9 +2449,6 @@ async def audit_message_edit(payload: discord.RawMessageUpdateEvent):
     )
 
 
-# ==========================================
-# 🔗 INVITE LOGS
-# ==========================================
 @bot.listen("on_invite_create")
 async def audit_invite_create(invite: discord.Invite):
     if not invite.guild:
@@ -2601,9 +2481,6 @@ async def audit_invite_delete(invite: discord.Invite):
         await refresh_invite_cache(invite.guild)
 
 
-# ==========================================
-# 😀 EMOJI / STICKER / SERVER LOGS
-# ==========================================
 @bot.listen("on_guild_emojis_update")
 async def audit_emojis_update(guild: discord.Guild, before, after):
     before_map = {e.id: e for e in before}
@@ -2653,13 +2530,7 @@ async def audit_guild_update(before: discord.Guild, after: discord.Guild):
         await send_audit_log(after, title="Server Updated", emoji=LOG_EMOJIS["server_update"], entry=entry, extra_fields=changed)
 
 
-# ==========================================
-# 🧾 END FULL SERVER LOGGING SYSTEM
-# ==========================================
 
-# ==========================================
-# MEMBER / SERVER PEAK TRACKING
-# ==========================================
 @bot.event
 async def on_member_join(member: discord.Member):
     update_peak_members(member.guild)
@@ -2669,9 +2540,6 @@ async def on_member_remove(member: discord.Member):
     update_peak_members(member.guild)
 
 
-# ==========================================
-# MUSIC / VOICE SYSTEM
-# ==========================================
 MUSIC_PLAYERS = {}
 
 
@@ -2703,9 +2571,9 @@ class MusicPlayer:
         self.current = None
         self.voice = None
         self.volume = 1.0
-        self.loop = "off"          # off, song, queue
+        self.loop = "off"
         self.autoplay = False
-        self.filter_name = "off"   # off, nightcore, bassboost
+        self.filter_name = "off"
         self.lock = asyncio.Lock()
 
     def filter_args(self):
@@ -2721,8 +2589,6 @@ class MusicPlayer:
         filter_args = self.filter_args()
         before = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
-        # YouTube/CDN URLs sometimes require the same HTTP headers that
-        # yt-dlp used when extracting the media URL.
         headers = track.get("http_headers") or {}
         if headers:
             header_lines = "\r\n".join(
@@ -2733,15 +2599,11 @@ class MusicPlayer:
 
         options = f"-vn -ar 48000 -ac 2 -af volume={self.volume:.3f}"
         if filter_args:
-            # filter_args already starts with -af; append volume to the filter chain.
             filter_chain = filter_args[len("-af "):]
             options = f"-vn -ar 48000 -ac 2 -af {filter_chain},volume={self.volume:.3f}"
 
         executable = get_ffmpeg_executable()
 
-        # Use PCM output and let discord.py handle the Opus encoding.
-        # This avoids FFmpeg's libopus encoder crash (exit code -11) seen
-        # on some Railway environments.
         return discord.FFmpegPCMAudio(
             url,
             executable=executable,
@@ -2757,7 +2619,6 @@ def music_player(guild_id):
 
 
 def _extract_info(query):
-    # Keep extraction conservative: one audio result, no playlist download.
     options = dict(YTDL_OPTIONS)
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(query, download=False)
@@ -2768,7 +2629,6 @@ def _extract_info(query):
 
         direct_url = info.get("url")
         if not direct_url:
-            # Some extractors expose formats instead of a top-level URL.
             formats = info.get("formats") or []
             audio_formats = [
                 f for f in formats
@@ -2848,7 +2708,6 @@ async def ensure_voice(interaction: Interaction):
             if vc.channel != target:
                 await vc.move_to(target)
         else:
-            # Explicit timeout + reconnect for Railway/cloud hosting.
             player.voice = await target.connect(timeout=30.0, reconnect=True)
 
         return player
@@ -2960,7 +2819,6 @@ async def play_next(guild_id):
 
 @bot.tree.command(name="join", description="Join your current voice channel")
 async def music_join(interaction: Interaction):
-    # MUST happen before any potentially slow Voice Gateway operation.
     await interaction.response.defer()
 
     player = await ensure_voice(interaction)
@@ -3002,7 +2860,6 @@ async def music_leave(interaction: Interaction):
 @bot.tree.command(name="play", description="Play YouTube or SoundCloud audio")
 @app_commands.describe(query="YouTube/SoundCloud URL or song name")
 async def music_play(interaction: Interaction, query: str):
-    # Defer FIRST. Both voice connection and yt-dlp can take several seconds.
     await interaction.response.defer()
 
     player = await ensure_voice(interaction)
@@ -3149,8 +3006,6 @@ async def music_volume(
     player = music_player(interaction.guild.id)
     player.volume = percent / 100
     vc = interaction.guild.voice_client
-    # FFmpeg applies volume when a new track starts.
-    # The current track is intentionally not restarted just to change volume.
     await interaction.response.send_message(
         f"🔊 Volume set to **{percent}%**."
     )
@@ -3231,9 +3086,6 @@ async def music_filter(interaction: Interaction, name: app_commands.Choice[str])
     )
 
 
-# ==========================================
-# 10. HELP CENTER
-# ==========================================
 HELP_CATEGORIES = {
     "🛡️ Moderation": [
         ("/warn", "Warn a member and store the warning."),
@@ -3395,9 +3247,6 @@ async def help_command(interaction: Interaction):
     await interaction.response.send_message(embed=embed, view=HelpView(), ephemeral=True)
 
 
-# ==========================================
-# 11. EXTRA MODERATION
-# ==========================================
 @bot.tree.command(name="warn", description="Warn a member")
 @app_commands.describe(user="Member to warn", reason="Reason")
 @is_owner_or_admin()
@@ -3502,9 +3351,6 @@ async def unlock(interaction: Interaction):
     await interaction.response.send_message("🔓 Channel unlocked.")
 
 
-# ==========================================
-# 12. COMMUNITY
-# ==========================================
 @bot.tree.command(name="poll", description="Create a community poll")
 @app_commands.describe(question="Question", option1="First option", option2="Second option")
 async def poll(interaction: Interaction, question: str, option1: str, option2: str):
@@ -3651,9 +3497,6 @@ async def serverinfo(interaction: Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-# ==========================================
-# 14. ECONOMY
-# ==========================================
 @bot.tree.command(name="balance", description="Check virtual Moon Coins")
 async def balance(interaction: Interaction, user: discord.Member = None):
     user = user or interaction.user
@@ -3731,9 +3574,6 @@ async def leaderboard(interaction: Interaction):
     )
 
 
-# ==========================================
-# 15. XP / LEVELS
-# ==========================================
 @bot.tree.command(name="rank", description="Show XP and level")
 async def rank(interaction: Interaction, user: discord.Member = None):
     user = user or interaction.user
@@ -3762,9 +3602,6 @@ async def leaderboardxp(interaction: Interaction):
     )
 
 
-# ==========================================
-# 16. GAMES
-# ==========================================
 @bot.tree.command(name="coinflip", description="Flip a virtual coin")
 async def coinflip(interaction: Interaction):
     await interaction.response.send_message(f"🪙 **{random.choice(['HEADS','TAILS'])}**")
@@ -3876,9 +3713,6 @@ async def blackjack(interaction: Interaction, amount: str):
     await interaction.response.send_message(f"🃏 Player `{p}` vs Dealer `{d}`\n{result}\n💰 `{wallet['coins']:,}`")
 
 
-# ==========================================
-# 🎮 GAMES CENTER — one panel for all games
-# ==========================================
 class BetModal(Modal):
     def __init__(self, game_name):
         self.game_name = game_name
@@ -3910,7 +3744,6 @@ class BetModal(Modal):
             else:
                 wallet["coins"] -= amount
                 text = f"🎰 **{number} • {color.upper()}** — 💀 Lost **{format_coins(amount)}**."
-                # 50/50 simple color bet is intentionally not exposed in this panel.
                 if random.random() < 0.5:
                     wallet["coins"] += amount * 2
                     text += "\n✨ Dark Night bonus win!"
@@ -4066,9 +3899,6 @@ async def vccenter(interaction: Interaction):
     await interaction.response.send_message(embed=make_temp_vc_embed(channel), view=TempVCControlView(), ephemeral=True)
 
 
-# ==========================================
-# 17. MAFIA
-# ==========================================
 class MafiaJoinView(View):
     def __init__(self, guild_id):
         super().__init__(timeout=300)
@@ -4145,9 +3975,6 @@ async def mafia(interaction: Interaction, action: app_commands.Choice[str]):
     await interaction.response.send_message("🔪 **Mafia started!** Secret roles were sent in DMs.")
 
 
-# ==========================================
-# 18. GIVEAWAYS
-# ==========================================
 @bot.tree.command(name="giveaway", description="Start a timed giveaway")
 @app_commands.describe(minutes="Duration", prize="Prize", winners="Winner count")
 @is_owner_or_admin()
@@ -4188,9 +4015,6 @@ async def giveaway_end(interaction: Interaction, message_id: str):
     await interaction.response.send_message("✅ Giveaway marked for ending. If it is still running, use its reaction list to pick a winner.", ephemeral=True)
 
 
-# ==========================================
-# 19. BIRTHDAYS
-# ==========================================
 @bot.tree.command(name="birthday", description="Set, view or remove your birthday")
 @app_commands.describe(action="set, view or remove", date="DD/MM when using set")
 @app_commands.choices(action=[
@@ -4215,9 +4039,6 @@ async def birthday(interaction: Interaction, action: app_commands.Choice[str], d
     await interaction.response.send_message(f"🎂 Birthday saved: **{date}**.", ephemeral=True)
 
 
-# ==========================================
-# 20. LISTENERS
-# ==========================================
 @bot.listen("on_message")
 async def moon_xp_listener(message: discord.Message):
     if message.author.bot or not message.guild:
@@ -4268,10 +4089,8 @@ async def moon_leave_listener(member: discord.Member):
 
 @bot.listen("on_voice_state_update")
 async def temporary_voice_listener(member, before, after):
-    # Create one private temporary room when a member enters the creator channel.
     if TEMP_VC_CHANNEL_ID and after.channel and after.channel.id == TEMP_VC_CHANNEL_ID:
         try:
-            # Reuse an existing room owned by the member instead of creating duplicates.
             existing_id = next((cid for cid, meta in TEMP_VC_META.items() if meta.get("owner") == member.id), None)
             if existing_id:
                 existing = member.guild.get_channel(existing_id)
@@ -4294,7 +4113,6 @@ async def temporary_voice_listener(member, before, after):
             }
             await member.move_to(channel, reason="Dark Night temporary VC")
 
-            # Discord supports text chat inside voice channels; send the control panel there.
             try:
                 await channel.send(embed=make_temp_vc_embed(channel), view=TempVCControlView())
             except (discord.Forbidden, discord.HTTPException):
@@ -4302,7 +4120,6 @@ async def temporary_voice_listener(member, before, after):
         except discord.HTTPException as exc:
             print(f"[TEMP VC] Create error: {exc!r}")
 
-    # Delete empty temporary rooms.
     if before.channel and before.channel.id in TEMP_VCS and len(before.channel.members) == 0:
         channel_id = before.channel.id
         TEMP_VCS.pop(channel_id, None)
@@ -4313,12 +4130,7 @@ async def temporary_voice_listener(member, before, after):
             pass
 
 
-# ==========================================
-# 🔊 TEMPORARY VC CONTROL CENTER
-# ==========================================
 
-# This is a NORMAL TEXT CHANNEL where the panel is posted.
-# It is NOT the temporary voice channel itself.
 VOICE_PANEL_IMAGE_URL = (
     "https://cdn.discordapp.com/attachments/"
     "1508515432834011160/1537230309756768256/"
@@ -4358,7 +4170,6 @@ def find_owned_temp_vc(guild: discord.Guild, user_id: int):
         if isinstance(channel, discord.VoiceChannel):
             return channel
 
-        # Clean stale entries automatically.
         TEMP_VCS.pop(channel_id, None)
         TEMP_VC_META.pop(channel_id, None)
 
@@ -4713,24 +4524,18 @@ class TempVCControlView(View):
 
         channel = None
 
-        # Old behavior: if the message is actually inside a temp VC,
-        # use that VC.
         if (
             isinstance(interaction.channel, discord.VoiceChannel)
             and interaction.channel.id in TEMP_VC_META
         ):
             channel = interaction.channel
 
-        # New behavior: panel is in a normal text channel, so locate
-        # the user's own temporary VC.
         if channel is None:
             channel = find_owned_temp_vc(
                 guild,
                 interaction.user.id,
             )
 
-        # Server owner/admin can control a selected active room if the
-        # panel is used outside a VC. Prefer their own room when one exists.
         if channel is None:
             if (
                 interaction.user.id == OWNER_ID
@@ -5201,12 +5006,8 @@ def make_full_voice_panel():
     )
 
 
-# ==========================================
-# 🔊 VOICE ACTIVITY LOGS
-# ==========================================
 @bot.listen("on_voice_state_update")
 async def audit_voice_activity(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-    # Ignore pure mute/deaf changes from the general room spam unless a channel changed.
     if before.channel == after.channel:
         return
 
@@ -5234,9 +5035,6 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     )
 
 
-# ==========================================
-# MASTER SLASH COMMAND TO SEND PANELS
-# ==========================================
 @bot.tree.command(name="send_panel", description="Send Dark Night embeds (Owner Only)")
 @app_commands.choices(panel=[
     app_commands.Choice(name="Socials", value="socials"),
@@ -5280,8 +5078,6 @@ async def send_panel(interaction: Interaction, panel: str):
 
         panel_channel = interaction.guild.get_channel(panel_channel_id) if interaction.guild else None
 
-        # If the fixed panel ID is not part of this guild, keep the old behavior
-        # and send the panel in the channel where /send_panel was executed.
         if not isinstance(panel_channel, discord.TextChannel):
             panel_channel = interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None
 
