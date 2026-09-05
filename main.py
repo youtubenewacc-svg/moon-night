@@ -139,7 +139,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # 👑 OWNER / LOGGING / IMPORTANT CHANNELS
 OWNER_ID = int(os.getenv("OWNER_ID", "1544404824076853258"))          # 👑 Bot owner ID
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1543761123046727691"))  # 🧑‍💼 Legacy / Apply log channel
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "1543761144060059648"))  # 🧑‍💼 Legacy / Apply log channel
 GENERAL_LOG_CHANNEL_ID = int(os.getenv("GENERAL_LOG_CHANNEL_ID", "1545594641271758848"))    # 🧾 General server audit log
 APPLY_LOG_CHANNEL_ID = int(os.getenv("APPLY_LOG_CHANNEL_ID", str(LOG_CHANNEL_ID)))  # 🧑‍💼 Apply/application log
 JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "1543760861137473536"))                  # ⛓️ Jail role
@@ -162,8 +162,8 @@ CHANNEL_IDS = {
 
     # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
     "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1543761188557426788")),          # 🐦 Published tweet messages (NOT threads)
-    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
-    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
+    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "1543761188557426788")),  # 💬 General discussion threads
+    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "1543761188557426788")),      # 🧑‍💼 Application threads (optional)
 }
 
 # 🎭 ROLE IDs — change the numbers only
@@ -207,7 +207,7 @@ EMOJIS = {
     "members": "<:Fams:1451145463511384094>",
     "voice": "<:voice:1451145649801269420>",
     "premium": "<:premium:1451145621246312529>",
-    "rules_star": "<a:estrellasbrillando:1442626060134121472>",
+    "rules_star": "<:kitty:1545598912889491598>",
     "welcome": "<a:welcome:1442626577690132663>",
     "channel": "<a:channelutility:1444868927262822582>",
     "arrow": "<:arrowblancasincentro:1444869479250002021>",
@@ -227,12 +227,12 @@ EMOJIS = {
 # No external image host is required.
 COMMUNITY_IMAGE_URL = os.getenv(
     "COMMUNITY_IMAGE_URL",
-    "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png"
+    "https://klipy.com/gifs/popopo"
 )
-TWEET_PANEL_IMAGE_URL = os.getenv("TWEET_PANEL_IMAGE_URL", COMMUNITY_IMAGE_URL)
+TWEET_PANEL_IMAGE_URL = os.getenv("https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9c9b4a&is=6a9b49ca&hm=f1245549404ea1742bc0b4ed5e30e06c562ff503367b94dfebe7b45f191cb1d5&", COMMUNITY_IMAGE_URL)
 
 IMAGES = {
-    "moon_logo": COMMUNITY_IMAGE_URL,
+    "moon_logo": https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9c9b4a&is=6a9b49ca&hm=f1245549404ea1742bc0b4ed5e30e06c562ff503367b94dfebe7b45f191cb1d5&,
     "panel_banner": COMMUNITY_IMAGE_URL,
     "role_request": "",  # Leave empty to disable the role-request banner.
 }
