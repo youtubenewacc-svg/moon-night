@@ -1234,7 +1234,7 @@ class TweetModal(Modal):
             # Normal text/news channels and existing threads can receive a message.
             sendable = isinstance(
                 post_channel,
-                (discord.TextChannel, discord.NewsChannel, discord.Thread),
+                (discord.TextChannel, discord.Thread),
             )
 
             # If the configured ID is a Forum channel, create a forum post instead.
@@ -3751,7 +3751,7 @@ def get_games_center_embed():
         color=EMBED_COLOR,
     )
     if TWEET_PANEL_IMAGE_URL:
-        embed.set_thumbnail(url=TWEET_PANEL_IMAGE_URL)
+        embed.set_image(url=TWEET_PANEL_IMAGE_URL)
     return embed
 
 @bot.tree.command(name="games", description="Open the Dark Night Games Center")
