@@ -146,7 +146,7 @@ JAIL_ROLE_ID = int(os.getenv("JAIL_ROLE_ID", "0"))                  # ⛓️ Jai
 PROTECTED_ROLE_ID = int(os.getenv("PROTECTED_ROLE_ID", "0"))        # 🛡️ Protected role (optional)
 WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))      # 👋 Welcome channel; 0 = off
 LEAVE_CHANNEL_ID = int(os.getenv("LEAVE_CHANNEL_ID", "0"))          # 💔 Leave channel; 0 = off
-TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1544406112097411072")) # 🔊 Temp VC creator
+TEMP_VC_CHANNEL_ID = int(os.getenv("TEMP_VC_CHANNEL_ID", "1543761017342005413")) # 🔊 Temp VC creator
 TEMP_VC_DEFAULT_LIMIT = int(os.getenv("TEMP_VC_DEFAULT_LIMIT", "0"))  # 👥 0 = unlimited
 TEMP_VC_NAME_PREFIX = os.getenv("TEMP_VC_NAME_PREFIX", "🔊")  # 🔊 Temp room prefix
 
@@ -161,7 +161,7 @@ CHANNEL_IDS = {
     "temp_voice": 1482902422065123338,  # 🔊 Temporary VC
 
     # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
-    "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1544405375632015552")),          # 🐦 Published tweet messages (NOT threads)
+    "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1543761188557426788")),          # 🐦 Published tweet messages (NOT threads)
     "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
     "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
 }
