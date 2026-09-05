@@ -162,8 +162,8 @@ CHANNEL_IDS = {
 
     # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
     "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1543761188557426788")),          # 🐦 Published tweet messages (NOT threads)
-    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
-    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
+    "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "1543761188557426788")),  # 💬 General discussion threads
+    "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "1543761188557426788")),      # 🧑‍💼 Application threads (optional)
 }
 
 # 🎭 ROLE IDs — change the numbers only
