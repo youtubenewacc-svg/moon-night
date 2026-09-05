@@ -167,15 +167,6 @@ CHANNEL_IDS = {
 
 # 🐦 TWEET CHANNELS PER SERVER
 #
-# Format in the environment variable:
-# TWEET_CHANNELS="SERVER_ID:CHANNEL_ID,SERVER_ID:CHANNEL_ID"
-#
-# Example:
-# TWEET_CHANNELS="123456789012345678:1543761188557426788,987654321098765432:1666666666666666666"
-#
-# You can also keep the old single-channel fallback below. The bot will only
-# use that fallback when the channel actually belongs to the current server.
-
 def _load_tweet_channels():
     result = {}
     raw = os.getenv("TWEET_CHANNELS", "1357114661295755304:1543761188557426788").strip()
@@ -273,16 +264,16 @@ ROLE_IDS = {
     "single": 1482902156364484661,
 
     # 🧑 Gender roles
-    "female": 1482902134071754832,
-    "male": 1482902134545580123,
-    "trans": 1482902135000000000,
+    "female": 1543760795349946458,
+    "male": 1543760793726750790,
+    "trans": 1545555471564415017,
 
     # 🎮 Games roles
-    "valorant": 1482902200000000001,
-    "freefire": 1482902200000000002,
-    "pubg": 1482902200000000003,
-    "chess": 1482902200000000004,
-    "bloodstrike": 1482902200000000005,
+    "valorant": 1543760829667745842,
+    "freefire": 1543760828598190100,
+    "pubg": 1543760842342801569,
+    "chess": 1543760830762590209,
+    "bloodstrike": 1543760843412344882,
 }
 
 # 😀 CUSTOM DISCORD EMOJIS — replace the value in quotes
