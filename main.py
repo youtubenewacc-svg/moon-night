@@ -161,7 +161,7 @@ CHANNEL_IDS = {
     "temp_voice": 1543761017342005413,  # 🔊 Temporary VC
 
     # 🧵 THREAD / TWEET ROOMS — put 0 if you want to use the current channel
-    "tweets": int(os.getenv("TWEETS_CHANNEL_ID", "1543761188557426788")),          # 🐦 Published tweet messages (NOT threads)
+    "tweets": 1543761188557426788,  # 🐦 Published tweet messages — FIXED CHANNEL ID
     "general_threads": int(os.getenv("GENERAL_THREADS_CHANNEL_ID", "0")),  # 💬 General discussion threads
     "apply_threads": int(os.getenv("APPLY_THREADS_CHANNEL_ID", "0")),      # 🧑‍💼 Application threads (optional)
 }
@@ -229,7 +229,7 @@ COMMUNITY_IMAGE_URL = os.getenv(
     "COMMUNITY_IMAGE_URL",
     "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png"
 )
-TWEET_PANEL_IMAGE_URL = os.getenv("TWEET_PANEL_IMAGE_URL", COMMUNITY_IMAGE_URL)
+TWEET_PANEL_IMAGE_URL = COMMUNITY_IMAGE_URL  # Fixed: always use the Octopus banner; do not let an old env var override it
 
 IMAGES = {
     "moon_logo": COMMUNITY_IMAGE_URL,
@@ -1195,81 +1195,196 @@ class TweetModal(Modal):
         self.add_item(self.thought)
 
     async def on_submit(self, interaction: Interaction):
+        # Acknowledge the modal immediately so Discord does not expire the interaction.
         await interaction.response.defer(ephemeral=True)
-        post_channel_id = CHANNEL_IDS.get("tweets", 0)
-        post_channel = (
-            interaction.guild.get_channel(post_channel_id)
-            if interaction.guild and post_channel_id
-            else None
-        )
 
-        if not isinstance(post_channel, discord.TextChannel):
-            return await interaction.followup.send(
-                "❌ Tweet channel is not configured for this server.\n"
-                f"🔑 Current `CHANNEL_IDS['tweets']`: `{post_channel_id or 'NOT SET'}`\n"
-                "➡️ Put the ID of the text channel where tweets must be posted in `CHANNEL_IDS['tweets']`.",
+        # IMPORTANT: this is intentionally hard-coded. An old Railway/environment
+        # variable must NOT override the channel ID copied from main (1).py.
+        POST_CHANNEL_ID = 1543761188557426788
+        post_channel = None
+
+        try:
+            # Cache first, then API fetch. fetch_channel() also works when the channel
+            # is not in the bot's local cache.
+            post_channel = bot.get_channel(POST_CHANNEL_ID)
+            if post_channel is None:
+                post_channel = await bot.fetch_channel(POST_CHANNEL_ID)
+
+            print(
+                f"[TWEET] Target channel resolved: id={POST_CHANNEL_ID} "
+                f"type={type(post_channel).__name__} "
+                f"guild={getattr(getattr(post_channel, 'guild', None), 'id', None)}"
+            )
+
+            if interaction.guild is None:
+                return await interaction.followup.send(
+                    "❌ This tweet button must be used inside a server.", ephemeral=True
+                )
+
+            channel_guild = getattr(post_channel, "guild", None)
+            if channel_guild is not None and channel_guild.id != interaction.guild.id:
+                return await interaction.followup.send(
+                    "❌ The configured tweet channel belongs to a different server.\n"
+                    f"Target channel: `{POST_CHANNEL_ID}`\n"
+                    f"Current server: `{interaction.guild.id}`\n"
+                    f"Target server: `{channel_guild.id}`",
+                    ephemeral=True,
+                )
+
+            # Normal text/news channels and existing threads can receive a message.
+            sendable = isinstance(
+                post_channel,
+                (discord.TextChannel, discord.NewsChannel, discord.Thread),
+            )
+
+            # If the configured ID is a Forum channel, create a forum post instead.
+            if isinstance(post_channel, discord.ForumChannel):
+                tweet_text = " ".join(self.thought.value.strip().split())
+                now = datetime.now(timezone.utc)
+                image_bytes = await create_tweet_image(interaction.user, tweet_text, self.theme)
+                embed = discord.Embed(
+                    title=f"🐦 New Tweet By · @{interaction.user.name}",
+                    color=0x111318 if self.theme == "dark" else 0xE8EBF0,
+                    timestamp=now,
+                )
+                embed.set_footer(text="Dark Night Community • Share your thoughts")
+                files = []
+                if image_bytes is not None:
+                    file = discord.File(image_bytes, filename="dark_night_tweet.png")
+                    files.append(file)
+                    embed.set_image(url="attachment://dark_night_tweet.png")
+                else:
+                    embed.description = tweet_text
+
+                thread_with_message = await post_channel.create_thread(
+                    name=f"@{interaction.user.name} • Tweet",
+                    content=interaction.user.mention,
+                    embed=embed,
+                    files=files,
+                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                )
+                published_message = thread_with_message.message
+                jump_url = published_message.jump_url
+                await interaction.followup.send(
+                    embed=discord.Embed(
+                        title="✅ Tweet Posted",
+                        description=f"Your tweet is live in {post_channel.mention}.\n[Jump to tweet]({jump_url})",
+                        color=0x57F287,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            if not sendable:
+                return await interaction.followup.send(
+                    "❌ The configured tweet ID is not a text/news/thread/forum channel.\n"
+                    f"ID: `{POST_CHANNEL_ID}`\n"
+                    f"Detected type: `{type(post_channel).__name__}`",
+                    ephemeral=True,
+                )
+
+            me = interaction.guild.me
+            permissions = post_channel.permissions_for(me) if me else None
+            if permissions is None:
+                return await interaction.followup.send(
+                    "❌ I could not check my permissions in the tweet channel.", ephemeral=True
+                )
+
+            missing = []
+            if not permissions.view_channel:
+                missing.append("View Channel")
+            if not permissions.send_messages:
+                missing.append("Send Messages")
+            if not permissions.embed_links:
+                missing.append("Embed Links")
+            if not permissions.attach_files:
+                missing.append("Attach Files")
+            if missing:
+                return await interaction.followup.send(
+                    "❌ I found the tweet channel, but I'm missing: **" + ", ".join(missing) + "**.",
+                    ephemeral=True,
+                )
+
+            tweet_text = " ".join(self.thought.value.strip().split())
+            now = datetime.now(timezone.utc)
+            image_bytes = await create_tweet_image(interaction.user, tweet_text, self.theme)
+
+            embed = discord.Embed(
+                title=f"🐦 New Tweet By · @{interaction.user.name}",
+                color=0x111318 if self.theme == "dark" else 0xE8EBF0,
+                timestamp=now,
+            )
+            embed.set_footer(text="Dark Night Community • Share your thoughts")
+
+            if image_bytes is not None:
+                file = discord.File(image_bytes, filename="dark_night_tweet.png")
+                embed.set_image(url="attachment://dark_night_tweet.png")
+                published_message = await post_channel.send(
+                    content=interaction.user.mention,
+                    embed=embed,
+                    file=file,
+                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                )
+            else:
+                embed.description = tweet_text
+                published_message = await post_channel.send(
+                    content=interaction.user.mention,
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                )
+
+            print(f"[TWEET] SUCCESS: published message={published_message.id} in channel={POST_CHANNEL_ID}")
+            jump_url = published_message.jump_url
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    title="✅ Tweet Posted",
+                    description=f"Your tweet is live in {post_channel.mention}.\n[Jump to tweet]({jump_url})",
+                    color=0x57F287,
+                ),
                 ephemeral=True,
             )
 
-        permissions = post_channel.permissions_for(interaction.guild.me)
-        if not permissions.view_channel or not permissions.send_messages or not permissions.embed_links or not permissions.attach_files:
-            return await interaction.followup.send(
-                "❌ I found the tweet channel, but I don't have the required permissions there.\n"
-                "I need: **View Channel + Send Messages + Embed Links + Attach Files**.",
+            await send_audit_log(
+                interaction.guild,
+                title="🐦 Tweet Published",
+                actor=interaction.user,
+                target=interaction.user,
+                channel=post_channel,
+                extra_fields=[
+                    ("Theme", "Dark Tweet" if self.theme == "dark" else "White Tweet", True),
+                    ("Content", tweet_text[:1024], False),
+                ],
+            )
+
+        except discord.NotFound:
+            print(f"[TWEET] CHANNEL NOT FOUND: {POST_CHANNEL_ID}")
+            await interaction.followup.send(
+                f"❌ Discord cannot find channel `{POST_CHANNEL_ID}`. Check that this is the correct channel ID.",
                 ephemeral=True,
             )
-
-        tweet_text = " ".join(self.thought.value.strip().split())
-        now = datetime.now(timezone.utc)
-        image_bytes = await create_tweet_image(interaction.user, tweet_text, self.theme)
-
-        # The Discord embed is only the frame. The actual tweet design is the compact image inside it.
-        embed = discord.Embed(
-            title=f"🐦 New Tweet By · @{interaction.user.name}",
-            color=0x111318 if self.theme == "dark" else 0xE8EBF0,
-            timestamp=now,
-        )
-        embed.set_footer(text="Dark Night Community • Share your thoughts")
-
-        if image_bytes is not None:
-            file = discord.File(image_bytes, filename="dark_night_tweet.png")
-            embed.set_image(url="attachment://dark_night_tweet.png")
-            published_message = await post_channel.send(
-                content=interaction.user.mention,
-                embed=embed,
-                file=file,
-                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+        except discord.Forbidden as exc:
+            print(f"[TWEET] FORBIDDEN: {exc!r}")
+            await interaction.followup.send(
+                "❌ Discord refused the tweet. Check the bot's channel permissions and that it can attach files.",
+                ephemeral=True,
             )
-        else:
-            # Clean fallback if Pillow is ever unavailable.
-            embed.add_field(name="💬 Replies", value="`0`", inline=True)
-            embed.add_field(name="❤️ Likes", value="`0`", inline=True)
-            embed.add_field(name="👁️ Views", value="`0`", inline=True)
-            published_message = await post_channel.send(
-                content=interaction.user.mention,
-                embed=embed,
-                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+        except discord.HTTPException as exc:
+            print(f"[TWEET] HTTP ERROR: status={getattr(exc, 'status', None)} text={getattr(exc, 'text', None)!r}")
+            await interaction.followup.send(
+                "❌ Discord returned an HTTP error while publishing the tweet.\n"
+                f"`{type(exc).__name__}: {exc}`",
+                ephemeral=True,
             )
-
-        jump_url = f"https://discord.com/channels/{interaction.guild.id}/{post_channel.id}/{published_message.id}"
-        success = discord.Embed(
-            title="✅ Tweet Posted",
-            description=f"Your tweet is live in {post_channel.mention}.\n[Jump to tweet]({jump_url})",
-            color=0x57F287,
-        )
-        await interaction.followup.send(embed=success, ephemeral=True)
-
-        await send_audit_log(
-            interaction.guild,
-            title="🐦 Tweet Published",
-            actor=interaction.user,
-            target=interaction.user,
-            channel=post_channel,
-            extra_fields=[
-                ("Theme", "Dark Tweet" if self.theme == "dark" else "White Tweet", True),
-                ("Content", tweet_text[:1024], False),
-            ],
-        )
+        except Exception as exc:
+            print(f"[TWEET] UNEXPECTED ERROR: {type(exc).__name__}: {exc!r}")
+            try:
+                await interaction.followup.send(
+                    "❌ Tweet could not be published.\n"
+                    f"`{type(exc).__name__}: {exc}`",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 class TweetPanelView(View):
@@ -1308,8 +1423,8 @@ def get_tweet_panel_embed():
         ),
         color=EMBED_COLOR,
     )
-    if TWEET_PANEL_IMAGE_URL:
-        embed.set_thumbnail(url=TWEET_PANEL_IMAGE_URL)
+    if COMMUNITY_IMAGE_URL:
+        embed.set_image(url=COMMUNITY_IMAGE_URL)
     embed.set_footer(text="Dark Night Community • Tweets • Choose a style below")
     return embed
 
