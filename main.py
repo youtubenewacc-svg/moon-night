@@ -232,7 +232,7 @@ COMMUNITY_IMAGE_URL = os.getenv(
 TWEET_PANEL_IMAGE_URL = os.getenv("https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9c9b4a&is=6a9b49ca&hm=f1245549404ea1742bc0b4ed5e30e06c562ff503367b94dfebe7b45f191cb1d5&", COMMUNITY_IMAGE_URL)
 
 IMAGES = {
-    "moon_logo": https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9c9b4a&is=6a9b49ca&hm=f1245549404ea1742bc0b4ed5e30e06c562ff503367b94dfebe7b45f191cb1d5&,
+    "moon_logo": "https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9c9b4a&is=6a9b49ca&hm=f1245549404ea1742bc0b4ed5e30e06c562ff503367b94dfebe7b45f191cb1d5&",
     "panel_banner": COMMUNITY_IMAGE_URL,
     "role_request": "",  # Leave empty to disable the role-request banner.
 }
