@@ -300,8 +300,8 @@ TWEET_PANEL_IMAGE_URL = os.getenv("TWEET_PANEL_IMAGE_URL", COMMUNITY_IMAGE_URL)
 
 IMAGES = {
     "moon_logo": "https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9d440a&is=6a9bf28a&hm=7fd8183b5d3e247e74e27f6e3e9d85a9fbfe73349f643863474d5174e9fb5cbb&",
-    "panel_banner": "https://klipy.com/gifs/popopo",
-    "role_request": "https://klipy.com/gifs/popopo",
+    "panel_banner": "https://imgur.com/a/BZ4sB5B",
+    "role_request": "https://imgur.com/a/BZ4sB5B",
 }
 
 
