@@ -249,31 +249,50 @@ def get_tweet_channel(guild: discord.Guild):
 # 🎭 ROLE IDs — change the numbers only
 ROLE_IDS = {
     # 🚀 Booster roles
-    "booster_nickname": 1523714779032584363,
-    "booster_moon": 1508497154313027675,
-    "booster_soundboard": 1482902118137462896,
-    "booster_pic": 1482902117693001898,
-    "booster_link": 1482902116858331217,
-    "booster_bughunter": 1482902047236952117,
-    "booster_vip": 1482902046653943870,
-    "booster_special": 1482902043558547650,
+    "booster_nickname": 1543760781441499267,
+    "booster_moon": 1543760736659054653,
+    "booster_soundboard": 1543760782393745438,
+    "booster_pic": 1543760780506431658,
+    "booster_link": 1543760779583561848,
+    "booster_bughunter": 1543760735325261866,
+    "booster_vip": 1543760734662565992,
+    "booster_special": 1543760728391950428,
 
     # 💘 Situation roles
-    "heartless": 1482902155219304549,
-    "taken": 1482902157324849333,
-    "single": 1482902156364484661,
+    "heartless": 1543760809820168232,
+    "taken": 1543760811737088101,
+    "single": 1543760812869419098,
 
     # 🧑 Gender roles
     "female": 1543760795349946458,
     "male": 1543760793726750790,
     "trans": 1545555471564415017,
 
-    # 🎮 Games roles
+    #  games roles are resolved automatically by their server role name
     "valorant": 1543760829667745842,
     "freefire": 1543760828598190100,
     "pubg": 1543760842342801569,
     "chess": 1543760830762590209,
     "bloodstrike": 1543760843412344882,
+    "mafia_vip": 1543760822805860452,
+    "among_us_vip": 1543760823913287862,
+    "among_us": 1543760825590878269,
+    "gta5": 1543760826652041268,
+    "minecraft": 1543760832888967249,
+    "pes": 1543760834369421334,
+    "roblox": 1543760835397030070,
+    "stumble_guys": 1543760837066625084,
+    "brawlhalla": 1543760837846765671,
+    "counter_strike": 1543760839167709266,
+    "league_of_legends": 1543760840040386640,
+    "mafia": 1543760841042698241,
+    "fortnite": 1543760844590948362,
+    "parchisi": 1543760845723410492,
+    "call_of_duty": 1543760847220768850,
+    "plato": 1543760848689037382,
+    "code_names": 1543760849624113273,
+    "fifa": 1543760850320621603,
+    "rocket_league": 1543760852425904138,
 }
 
 # 😀 CUSTOM DISCORD EMOJIS — replace the value in quotes
@@ -307,13 +326,13 @@ EMOJIS = {
 # No external image host is required.
 COMMUNITY_IMAGE_URL = os.getenv(
     "COMMUNITY_IMAGE_URL",
-    "https://cdn.discordapp.com/attachments/1544405356258656347/1544728175827755178/octopus_png_banner.png"
+    "https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9d440a&is=6a9bf28a&hm=7fd8183b5d3e247e74e27f6e3e9d85a9fbfe73349f643863474d5174e9fb5cbb&"
 )
 TWEET_PANEL_IMAGE_URL = os.getenv("TWEET_PANEL_IMAGE_URL", COMMUNITY_IMAGE_URL)
 
 IMAGES = {
-    "moon_logo": COMMUNITY_IMAGE_URL,
-    "panel_banner": COMMUNITY_IMAGE_URL,
+    "moon_logo": "https://cdn.discordapp.com/attachments/1508515432834011160/1537230309756768256/From_Klickpin.com-_696861742315861333-pin-id-696861742315861333.gif?ex=6a9d440a&is=6a9bf28a&hm=7fd8183b5d3e247e74e27f6e3e9d85a9fbfe73349f643863474d5174e9fb5cbb&",
+    "panel_banner": "https://klipy.com/gifs/popopo",
     "role_request": "",  # Leave empty to disable the role-request banner.
 }
 
@@ -873,9 +892,64 @@ def get_booster_embed():
 # ROLE_IDS is configured in the EASY CUSTOMIZATION section at the top.
 
 
+# 🎮 Games role names as they appear in the server.
+# Matching is case-insensitive and ignores spaces/underscores/hyphens.
+GAMES_ROLE_NAMES = {
+    "valorant": "Valorant",
+    "freefire": "Free Fire",
+    "pubg": "Pubg Mobile",
+    "chess": "chess",
+    "bloodstrike": "Blood strike",
+    "mafia_vip": "Mafia VIP 9",
+    "among_us_vip": "Among Us VIP",
+    "among_us": "Among Us",
+    "gta5": "GTA 5",
+    "minecraft": "Minecraft",
+    "pes": "Pes",
+    "roblox": "Roblox",
+    "stumble_guys": "Stumble Guys",
+    "brawlhalla": "Brawlhalla",
+    "counter_strike": "Counter Strike",
+    "league_of_legends": "League Of Legends",
+    "mafia": "Mafia",
+    "fortnite": "Fortnite",
+    "parchisi": "Parchisi",
+    "call_of_duty": "Call Of Duty",
+    "plato": "Plato",
+    "code_names": "Code Names",
+    "fifa": "FIFA",
+    "rocket_league": "Rocket league",
+}
+
+
+def _normalize_role_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def get_configured_role(guild: discord.Guild, role_key: str):
+    if not guild:
+        return None
+
+    role_id = ROLE_IDS.get(role_key, 0)
+    if role_id:
+        role = guild.get_role(role_id)
+        if role:
+            return role
+
+    expected_name = GAMES_ROLE_NAMES.get(role_key)
+    if not expected_name:
+        return None
+
+    expected = _normalize_role_name(expected_name)
+    for role in guild.roles:
+        if _normalize_role_name(role.name) == expected:
+            return role
+
+    return None
+
+
 async def toggle_role(interaction: Interaction, role_key: str):
-    role_id = ROLE_IDS.get(role_key)
-    role = interaction.guild.get_role(role_id) if role_id else None
+    role = get_configured_role(interaction.guild, role_key)
     
     if not role:
         return await interaction.response.send_message(f"❌ Role for `{role_key}` is not configured or not found!", ephemeral=True)
@@ -940,12 +1014,33 @@ class GamesRolesView(View):
 
     @discord.ui.select(
         placeholder="Select A Games Role!",
+        min_values=1,
+        max_values=1,
         options=[
-            discord.SelectOption(label="Valorant", description="Select for Valorant Role", value="role_val", emoji="🎮"),
-            discord.SelectOption(label="Free Fire", description="Select for Free Fire Role", value="role_ff", emoji="🔥"),
-            discord.SelectOption(label="Pubg Mobile", description="Select for PUBG Role", value="role_pubg", emoji="🔫"),
-            discord.SelectOption(label="Chess", description="Select for Chess Role", value="role_chess", emoji="♟️"),
-            discord.SelectOption(label="Blood Strike", description="Select for Blood Strike Role", value="role_bs", emoji="⚔️"),
+            discord.SelectOption(label="Mafia VIP 9", description="Select for Mafia VIP Role", value="mafia_vip", emoji="🎭"),
+            discord.SelectOption(label="Among Us VIP", description="Select for Among Us VIP Role", value="among_us_vip", emoji="🔷"),
+            discord.SelectOption(label="Among Us", description="Select for Among Us Role", value="among_us", emoji="👨‍🚀"),
+            discord.SelectOption(label="GTA 5", description="Select for GTA 5 Role", value="gta5", emoji="🚗"),
+            discord.SelectOption(label="Free Fire", description="Select for Free Fire Role", value="freefire", emoji="🔥"),
+            discord.SelectOption(label="Valorant", description="Select for Valorant Role", value="valorant", emoji="🎮"),
+            discord.SelectOption(label="Chess", description="Select for Chess Role", value="chess", emoji="♟️"),
+            discord.SelectOption(label="Minecraft", description="Select for Minecraft Role", value="minecraft", emoji="⛏️"),
+            discord.SelectOption(label="Pes", description="Select for PES Role", value="pes", emoji="⚽"),
+            discord.SelectOption(label="Roblox", description="Select for Roblox Role", value="roblox", emoji="🟥"),
+            discord.SelectOption(label="Stumble Guys", description="Select for Stumble Guys Role", value="stumble_guys", emoji="🏃"),
+            discord.SelectOption(label="Brawlhalla", description="Select for Brawlhalla Role", value="brawlhalla", emoji="⚔️"),
+            discord.SelectOption(label="Counter Strike", description="Select for Counter Strike Role", value="counter_strike", emoji="🔫"),
+            discord.SelectOption(label="League Of Legends", description="Select for League Of Legends Role", value="league_of_legends", emoji="🏆"),
+            discord.SelectOption(label="Mafia", description="Select for Mafia Role", value="mafia", emoji="🕵️"),
+            discord.SelectOption(label="Pubg Mobile", description="Select for PUBG Mobile Role", value="pubg", emoji="🔫"),
+            discord.SelectOption(label="Blood strike", description="Select for Blood Strike Role", value="bloodstrike", emoji="⚔️"),
+            discord.SelectOption(label="Fortnite", description="Select for Fortnite Role", value="fortnite", emoji="🪂"),
+            discord.SelectOption(label="Parchisi", description="Select for Parchisi Role", value="parchisi", emoji="🎲"),
+            discord.SelectOption(label="Call Of Duty", description="Select for Call Of Duty Role", value="call_of_duty", emoji="💥"),
+            discord.SelectOption(label="Plato", description="Select for Plato Role", value="plato", emoji="🎯"),
+            discord.SelectOption(label="Code Names", description="Select for Code Names Role", value="code_names", emoji="🧩"),
+            discord.SelectOption(label="FIFA", description="Select for FIFA Role", value="fifa", emoji="⚽"),
+            discord.SelectOption(label="Rocket league", description="Select for Rocket League Role", value="rocket_league", emoji="🚀"),
         ],
         custom_id="select_games_roles"
     )
