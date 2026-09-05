@@ -178,7 +178,7 @@ CHANNEL_IDS = {
 
 def _load_tweet_channels():
     result = {}
-    raw = os.getenv("TWEET_CHANNELS", "").strip()
+    raw = os.getenv("TWEET_CHANNELS", "1357114661295755304:1543761188557426788").strip()
     if raw:
         for item in raw.split(","):
             item = item.strip()
@@ -197,6 +197,32 @@ TWEET_CHANNELS = _load_tweet_channels()
 # Optional default for the original test server/channel.
 # This is safe because the bot verifies that the channel belongs to the current guild.
 TWEET_FALLBACK_CHANNEL_ID = int(os.getenv("TWEET_FALLBACK_CHANNEL_ID", "1543761188557426788"))
+
+# Panel room for the Tweets button/panel.
+TWEET_PANEL_CHANNEL_ID = int(os.getenv("TWEET_PANEL_CHANNEL_ID", "1543761186917449829"))
+
+def _load_tweet_panel_channels():
+    result = {}
+    raw = os.getenv("TWEET_PANEL_CHANNELS", "1357114661295755304:1543761186917449829").strip()
+    if raw:
+        for item in raw.split(","):
+            item = item.strip()
+            if not item or ":" not in item:
+                continue
+            guild_id, channel_id = item.split(":", 1)
+            if guild_id.strip().isdigit() and channel_id.strip().isdigit():
+                gid = int(guild_id.strip())
+                cid = int(channel_id.strip())
+                if gid > 0 and cid > 0:
+                    result[gid] = cid
+    return result
+
+TWEET_PANEL_CHANNELS = _load_tweet_panel_channels()
+
+# Optional channel in another server where the bot is allowed to upload files.
+# This is used as a Discord CDN image host when the target server blocks uploads.
+# Leave it at 0 to auto-detect a usable channel in another guild.
+TWEET_IMAGE_HOST_CHANNEL_ID = int(os.getenv("TWEET_IMAGE_HOST_CHANNEL_ID", "0"))
 
 
 def get_tweet_channel(guild: discord.Guild):
@@ -1046,12 +1072,10 @@ def get_role_request_embed():
 # ==========================================
 # 9. 🐦 DARK NIGHT TWEETS
 # ==========================================
-# Tweets are native Discord embeds:
-# - No external image host is required.
-# - The member avatar is a small thumbnail.
-# - The tweet text is large and clean inside the embed.
-# - Dark/Light changes the embed theme.
-# - The real Discord member is mentioned in the message.
+# Tweets use a generated PNG.
+# If the target guild blocks file uploads (Discord error 400001), the PNG is
+# uploaded to another guild where uploads are allowed and its Discord CDN URL
+# is used in the target embed. This keeps the full tweet artwork.
 
 TWEET_WIDTH = 1200
 TWEET_HEIGHT = 675
@@ -1216,6 +1240,102 @@ async def create_tweet_image(member: discord.Member, text: str, theme: str):
     return output
 
 
+async def _get_member_for_channel_permissions(guild: discord.Guild):
+    me = guild.me
+    if me is not None:
+        return me
+    try:
+        return await guild.fetch_member(bot.user.id)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return None
+
+
+async def _find_tweet_image_host_channel(exclude_guild_id: int):
+    """Find a channel in another guild where the bot can upload the tweet PNG.
+
+    Discord can block uploads for one guild at the guild level. An attachment
+    uploaded to a different guild's Discord CDN can still be displayed by an
+    embed in the target guild, so we use a dedicated/available channel as a
+    small image host.
+    """
+    if TWEET_IMAGE_HOST_CHANNEL_ID:
+        configured = bot.get_channel(TWEET_IMAGE_HOST_CHANNEL_ID)
+        if isinstance(configured, discord.TextChannel) and configured.guild.id != exclude_guild_id:
+            me = await _get_member_for_channel_permissions(configured.guild)
+            if me is not None:
+                perms = configured.permissions_for(me)
+                if perms.view_channel and perms.send_messages and perms.attach_files:
+                    return configured
+
+    preferred_names = {
+        "tweet-image-host", "tweet-images", "tweet-image",
+        "image-host", "images", "bot-images", "bot-media",
+        "tweets", "tweet", "test", "testing",
+    }
+
+    candidates = []
+    for guild in bot.guilds:
+        if guild.id == exclude_guild_id:
+            continue
+
+        me = await _get_member_for_channel_permissions(guild)
+        if me is None:
+            continue
+
+        for channel in guild.text_channels:
+            perms = channel.permissions_for(me)
+            if not (perms.view_channel and perms.send_messages and perms.attach_files):
+                continue
+
+            score = 0
+            if channel.name.lower() in preferred_names:
+                score += 100
+            if any(word in channel.name.lower() for word in ("tweet", "image", "media", "test", "bot")):
+                score += 25
+            # Prefer channels near the top of the server's normal text-channel list.
+            score += max(0, 10 - channel.position)
+            candidates.append((score, channel))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+async def _upload_tweet_image_to_discord_cdn(image_bytes, filename: str, exclude_guild_id: int):
+    """Upload the generated PNG to another guild and return its Discord CDN URL."""
+    host_channel = await _find_tweet_image_host_channel(exclude_guild_id)
+    if host_channel is None:
+        print(f"[TWEET IMAGE HOST] No usable upload channel found outside guild {exclude_guild_id}.")
+        return None
+
+    try:
+        image_bytes.seek(0)
+        host_message = await host_channel.send(
+            file=discord.File(image_bytes, filename=filename),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        if not host_message.attachments:
+            print(f"[TWEET IMAGE HOST] Upload succeeded but no attachment URL was returned. Channel={host_channel.id}")
+            return None
+
+        url = host_message.attachments[0].url
+        print(
+            f"[TWEET IMAGE HOST] Uploaded tweet image to {host_channel.guild.name} "
+            f"#{host_channel.name} ({host_channel.id}) -> {url}"
+        )
+        return url
+    except discord.Forbidden as exc:
+        print(f"[TWEET IMAGE HOST] Forbidden in channel {host_channel.id}: {exc!r}")
+    except discord.HTTPException as exc:
+        print(f"[TWEET IMAGE HOST] HTTP error in channel {host_channel.id}: {exc!r}")
+    except Exception as exc:
+        print(f"[TWEET IMAGE HOST] Unexpected error: {type(exc).__name__}: {exc!r}")
+
+    return None
+
+
 class TweetModal(Modal):
     def __init__(self, theme: str):
         self.theme = theme
@@ -1280,8 +1400,9 @@ class TweetModal(Modal):
                 missing.append("Send Messages")
             if not perms.embed_links:
                 missing.append("Embed Links")
-            if not perms.attach_files:
-                missing.append("Attach Files")
+            # Attach Files is NOT required on the target guild anymore.
+            # If uploads are blocked at guild level, the image is uploaded to
+            # another guild and embedded from the Discord CDN.
 
             if missing and not perms.administrator:
                 return await interaction.followup.send(
@@ -1313,13 +1434,34 @@ class TweetModal(Modal):
         embed.set_footer(text="Dark Night Community • Share your thoughts")
 
         try:
-            if image_bytes is not None:
-                file = discord.File(
-                    image_bytes,
-                    filename="dark_night_tweet.png",
-                )
-                embed.set_image(url="attachment://dark_night_tweet.png")
+            image_url = None
 
+            # IMPORTANT: if this guild has Discord's guild-level upload restriction,
+            # upload the PNG in another guild where uploads work, then use the
+            # returned Discord CDN URL in the target embed. No file is uploaded
+            # to the restricted guild.
+            if image_bytes is not None:
+                image_url = await _upload_tweet_image_to_discord_cdn(
+                    image_bytes,
+                    "dark_night_tweet.png",
+                    guild.id,
+                )
+
+            if image_url:
+                embed.set_image(url=image_url)
+                published_message = await post_channel.send(
+                    content=interaction.user.mention,
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions(
+                        users=[interaction.user]
+                    ),
+                )
+            elif image_bytes is not None:
+                # If no host channel was found, try the normal attachment once.
+                # This still works automatically on servers where uploads are allowed.
+                image_bytes.seek(0)
+                file = discord.File(image_bytes, filename="dark_night_tweet.png")
+                embed.set_image(url="attachment://dark_night_tweet.png")
                 published_message = await post_channel.send(
                     content=interaction.user.mention,
                     embed=embed,
@@ -1329,6 +1471,7 @@ class TweetModal(Modal):
                     ),
                 )
             else:
+                embed.description = tweet_text
                 embed.add_field(name="💬 Replies", value="`0`", inline=True)
                 embed.add_field(name="❤️ Likes", value="`0`", inline=True)
                 embed.add_field(name="👁️ Views", value="`0`", inline=True)
@@ -1358,13 +1501,41 @@ class TweetModal(Modal):
             print(f"Exception   : {exc!r}")
             print("=" * 70 + "\n")
 
-            return await interaction.followup.send(
-                "❌ Discord refused the message.\n\n"
-                "The bot reached the correct Tweet channel, but Discord blocked the send.\n"
-                "Check the channel/category permissions for the bot role.\n\n"
-                "Required: `View Channel`, `Send Messages`, `Embed Links`, `Attach Files`.",
-                ephemeral=True,
-            )
+            if getattr(exc, "code", None) == 400001:
+                # The target guild blocks file uploads. If the CDN-host fallback
+                # was unavailable, post a clean text/embed version instead of failing.
+                fallback_embed = discord.Embed(
+                    title=f"🐦 New Tweet By · @{interaction.user.name}",
+                    description=tweet_text,
+                    color=0x111318 if self.theme == "dark" else 0xE8EBF0,
+                    timestamp=now,
+                )
+                fallback_embed.set_thumbnail(url=str(interaction.user.display_avatar.url))
+                fallback_embed.add_field(name="💬 Replies", value="`0`", inline=True)
+                fallback_embed.add_field(name="❤️ Likes", value="`0`", inline=True)
+                fallback_embed.add_field(name="👁️ Views", value="`0`", inline=True)
+                fallback_embed.set_footer(text="Dark Night Community • Uploads restricted in this server")
+
+                try:
+                    published_message = await post_channel.send(
+                        content=interaction.user.mention,
+                        embed=fallback_embed,
+                        allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                    )
+                except discord.HTTPException as fallback_exc:
+                    print(f"[TWEET] 400001 fallback also failed: {fallback_exc!r}")
+                    return await interaction.followup.send(
+                        "❌ Discord is blocking file uploads in this server, and the fallback message also failed.",
+                        ephemeral=True,
+                    )
+            else:
+                return await interaction.followup.send(
+                    "❌ Discord refused the message.\n\n"
+                    "The bot reached the correct Tweet channel, but Discord blocked the send.\n"
+                    "Check the channel/category permissions for the bot role.\n\n"
+                    "Required: `View Channel`, `Send Messages`, `Embed Links`, `Attach Files`.",
+                    ephemeral=True,
+                )
 
         except discord.HTTPException as exc:
             print(
@@ -5017,7 +5188,24 @@ async def send_panel(interaction: Interaction, panel: str):
     elif panel == "rolerequest":
         await interaction.channel.send(embed=get_role_request_embed(), view=RoleRequestView())
     elif panel == "tweets":
-        await interaction.channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
+        panel_channel_id = TWEET_PANEL_CHANNELS.get(interaction.guild.id) if interaction.guild else None
+        if not panel_channel_id:
+            panel_channel_id = TWEET_PANEL_CHANNEL_ID
+
+        panel_channel = interaction.guild.get_channel(panel_channel_id) if interaction.guild else None
+
+        # If the fixed panel ID is not part of this guild, keep the old behavior
+        # and send the panel in the channel where /send_panel was executed.
+        if not isinstance(panel_channel, discord.TextChannel):
+            panel_channel = interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None
+
+        if not isinstance(panel_channel, discord.TextChannel):
+            return await interaction.followup.send(
+                f"❌ Tweet panel channel not found: `{panel_channel_id}`",
+                ephemeral=True,
+            )
+
+        await panel_channel.send(embed=get_tweet_panel_embed(), view=TweetPanelView())
     elif panel == "voice_room_panel":
         voice_embed, voice_links, voice_controls = make_full_voice_panel()
         await interaction.channel.send(
