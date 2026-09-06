@@ -1314,6 +1314,53 @@ async def _find_tweet_image_host_channel(exclude_guild_id: int):
     return candidates[0][1]
 
 
+async def _upload_tweet_image_external(image_bytes, filename: str):
+    """Upload the generated PNG to Catbox and return a direct image URL."""
+    try:
+        image_bytes.seek(0)
+        data = image_bytes.read()
+        boundary = "----DarkNight" + os.urandom(12).hex()
+
+        parts = []
+        parts.append(
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="reqtype"\r\n\r\n'
+            "fileupload\r\n"
+        )
+        parts.append(
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="fileToUpload"; filename="{filename}"\r\n'
+            "Content-Type: image/png\r\n\r\n"
+        )
+
+        body = parts[0].encode("utf-8") + parts[1].encode("utf-8") + data
+        body += f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+        request = urllib.request.Request(
+            "https://catbox.moe/user/api.php",
+            data=body,
+            headers={
+                "User-Agent": "DarkNightBot/1.0",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            method="POST",
+        )
+
+        response = await asyncio.to_thread(
+            lambda: urllib.request.urlopen(request, timeout=20).read().decode("utf-8").strip()
+        )
+
+        if response.startswith("https://files.catbox.moe/"):
+            print(f"[TWEET IMAGE HOST] External image URL -> {response}")
+            return response
+
+        print(f"[TWEET IMAGE HOST] External upload returned: {response[:300]!r}")
+    except Exception as exc:
+        print(f"[TWEET IMAGE HOST] External upload failed: {type(exc).__name__}: {exc!r}")
+
+    return None
+
+
 async def _upload_tweet_image_to_discord_cdn(image_bytes, filename: str, exclude_guild_id: int):
     """Upload the generated PNG to another guild and return its Discord CDN URL."""
     host_channel = await _find_tweet_image_host_channel(exclude_guild_id)
@@ -1431,11 +1478,8 @@ class TweetModal(Modal):
             image_bytes = None
 
         embed = discord.Embed(
-            title=f"🐦 New Tweet By · @{interaction.user.name}",
             color=0x111318 if self.theme == "dark" else 0xE8EBF0,
-            timestamp=now,
         )
-        embed.set_footer(text="Dark Night Community • Share your thoughts")
 
         try:
             image_url = None
@@ -1447,43 +1491,26 @@ class TweetModal(Modal):
                     guild.id,
                 )
 
-            if image_url:
-                # The PNG already contains the complete Tweet design.
-                # Keep the target message clean: show only the generated image.
-                image_embed = discord.Embed(color=0x111318 if self.theme == "dark" else 0xE8EBF0)
-                image_embed.set_image(url=image_url)
-                published_message = await post_channel.send(
-                    content=interaction.user.mention,
-                    embed=image_embed,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=[interaction.user]
-                    ),
-                )
-            elif image_bytes is not None:
-                image_bytes.seek(0)
-                file = discord.File(image_bytes, filename="dark_night_tweet.png")
-                image_embed = discord.Embed(color=0x111318 if self.theme == "dark" else 0xE8EBF0)
-                image_embed.set_image(url="attachment://dark_night_tweet.png")
-                published_message = await post_channel.send(
-                    content=interaction.user.mention,
-                    embed=image_embed,
-                    file=file,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=[interaction.user]
-                    ),
-                )
-            else:
-                embed.description = tweet_text
-                embed.add_field(name="💬 Replies", value="`0`", inline=True)
-                embed.add_field(name="❤️ Likes", value="`0`", inline=True)
-                embed.add_field(name="👁️ Views", value="`0`", inline=True)
+                if not image_url:
+                    image_url = await _upload_tweet_image_external(
+                        image_bytes,
+                        "dark_night_tweet.png",
+                    )
 
+            if image_url:
+                embed.set_image(url=image_url)
                 published_message = await post_channel.send(
                     content=interaction.user.mention,
                     embed=embed,
                     allowed_mentions=discord.AllowedMentions(
                         users=[interaction.user]
                     ),
+                )
+            else:
+                return await interaction.followup.send(
+                    "❌ I couldn't upload the Tweet image.\n"
+                    "Discord is blocking uploads in this server and the image host is unavailable.",
+                    ephemeral=True,
                 )
 
         except discord.Forbidden as exc:
@@ -1502,40 +1529,10 @@ class TweetModal(Modal):
                 print(f"Admin       : {p.administrator}")
             print(f"Exception   : {exc!r}")
             print("=" * 70 + "\n")
-
-            if getattr(exc, "code", None) == 400001:
-                fallback_embed = discord.Embed(
-                    title=f"🐦 New Tweet By · @{interaction.user.name}",
-                    description=tweet_text,
-                    color=0x111318 if self.theme == "dark" else 0xE8EBF0,
-                    timestamp=now,
-                )
-                fallback_embed.set_thumbnail(url=str(interaction.user.display_avatar.url))
-                fallback_embed.add_field(name="💬 Replies", value="`0`", inline=True)
-                fallback_embed.add_field(name="❤️ Likes", value="`0`", inline=True)
-                fallback_embed.add_field(name="👁️ Views", value="`0`", inline=True)
-                fallback_embed.set_footer(text="Dark Night Community • Uploads restricted in this server")
-
-                try:
-                    published_message = await post_channel.send(
-                        content=interaction.user.mention,
-                        embed=fallback_embed,
-                        allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
-                    )
-                except discord.HTTPException as fallback_exc:
-                    print(f"[TWEET] 400001 fallback also failed: {fallback_exc!r}")
-                    return await interaction.followup.send(
-                        "❌ Discord is blocking file uploads in this server, and the fallback message also failed.",
-                        ephemeral=True,
-                    )
-            else:
-                return await interaction.followup.send(
-                    "❌ Discord refused the message.\n\n"
-                    "The bot reached the correct Tweet channel, but Discord blocked the send.\n"
-                    "Check the channel/category permissions for the bot role.\n\n"
-                    "Required: `View Channel`, `Send Messages`, `Embed Links`, `Attach Files`.",
-                    ephemeral=True,
-                )
+            return await interaction.followup.send(
+                "❌ Discord refused the Tweet message.",
+                ephemeral=True,
+            )
 
         except discord.HTTPException as exc:
             print(
