@@ -1448,10 +1448,13 @@ class TweetModal(Modal):
                 )
 
             if image_url:
-                embed.set_image(url=image_url)
+                # The PNG already contains the complete Tweet design.
+                # Keep the target message clean: show only the generated image.
+                image_embed = discord.Embed(color=0x111318 if self.theme == "dark" else 0xE8EBF0)
+                image_embed.set_image(url=image_url)
                 published_message = await post_channel.send(
                     content=interaction.user.mention,
-                    embed=embed,
+                    embed=image_embed,
                     allowed_mentions=discord.AllowedMentions(
                         users=[interaction.user]
                     ),
@@ -1459,10 +1462,11 @@ class TweetModal(Modal):
             elif image_bytes is not None:
                 image_bytes.seek(0)
                 file = discord.File(image_bytes, filename="dark_night_tweet.png")
-                embed.set_image(url="attachment://dark_night_tweet.png")
+                image_embed = discord.Embed(color=0x111318 if self.theme == "dark" else 0xE8EBF0)
+                image_embed.set_image(url="attachment://dark_night_tweet.png")
                 published_message = await post_channel.send(
                     content=interaction.user.mention,
-                    embed=embed,
+                    embed=image_embed,
                     file=file,
                     allowed_mentions=discord.AllowedMentions(
                         users=[interaction.user]
