@@ -148,7 +148,7 @@ GRAND_CITY_BANNER_URL = "https://cdn.discordapp.com/attachments/1315665568228966
 # GRAND CITY RP SERVER TAG PANEL
 SERVER_TAG_RULES_CHANNEL_ID = 1547225152461344849
 SERVER_TAG_JOIN_TO_CREATE_CHANNEL_ID = 1547225223588347984
-SERVER_TAG_IMAGE_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548447596203221123/image.png?ex=6aa717b3&is=6aa5c633&hm=fc8119f834787c456ae021e770e89f99c80d5d630d9aea96c0aa0f1b9657307e&"
+SERVER_TAG_IMAGE_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548450602499973212/ef9288ae-8b36-4e64-b3e5-a8d7a0bd3389.png?ex=6aa71a80&is=6aa5c900&hm=900018f3d5608658b22b99eb1ee8fcbe300ff2c3abee62a734a32f7cf77c0e6b"
 
 # Leave these empty and add your own Discord custom emojis later.
 SERVER_TAG_TITLE_EMOJI = ""       # Title emoji
@@ -1042,33 +1042,46 @@ class RoleRequestView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-        # Police / EMS / all gang roles stay together, including Lost MC.
-        police_ems_gangs = [
-            ("Mafia Boss", "mafia_boss", "👑"), ("Mafia Agent", "mafia_agent", "🕵️"),
-            ("Chief LSPD", "chief_lspd", "🚔"), ("LSPD", "lspd", "🚓"),
-            ("Chief Sheriff", "chief_sheriff", "⭐"), ("Sheriff", "sheriff", "🤠"),
-            ("Chief EMS", "chief_ems", "🚑"), ("EMS", "ems", "🩺"),
-            ("OG Gang", "og_gang", "💀"), ("Bloods", "bloods", "🔴"),
-            ("Ballas", "ballas", "🟣"), ("Families", "families", "🟢"),
-            ("Vagos", "vagos", "🟡"), ("Lost MC", "lost_mc", "🏍️"),
+        # Legal roles.
+        legal_roles = [
+            ("LSPD", "lspd", "🚓"),
+            ("Sheriff", "sheriff", "🤠"),
+            ("EMS", "ems", "🚑"),
+            ("Mechanic", "mechanic", "🔧"),
+            ("Car Dealer", "car_dealer", "🚗"),
+            ("Pizzeria", "pizzeria", "🍕"),
+            ("WhiteWidow", "whitewidow", "🌿"),
+            ("Cat Coffee", "cat_coffee", "🐈"),
         ]
-        # Keep Lost MC with the other Gang roles above.
-        businesses_other = [
-            ("Mechanic Manager", "mechanic_manager", "🔧"),
-            ("Car Dealer Manager", "car_dealer_manager", "🚘"), ("Car Dealer", "car_dealer", "🚗"),
-            ("Pizzeria Manager", "pizzeria_manager", "🍕"), ("Pizzeria", "pizzeria", "🍕"),
-            ("WhiteWidow Manager", "whitewidow_manager", "🌿"), ("WhiteWidow", "whitewidow", "🌱"),
-            ("Cat Coffee Manager", "cat_coffee_manager", "☕"), ("Cat Coffee", "cat_coffee", "🐈"),
-            ("Legal", "legal", "⚖️"), ("Illegal", "illegal", "🕶️"),
+
+        # Illegal roles.
+        illegal_roles = [
+            ("Mafia Agent", "mafia_agent", "🕵️"),
+            ("OG Gang", "og_gang", "💀"),
+            ("Bloods", "bloods", "🔴"),
+            ("Ballas", "ballas", "🟣"),
+            ("Families", "families", "🟢"),
+            ("Vagos", "vagos", "🟡"),
+            ("Lost MC", "lost_mc", "🏍️"),
+        ]
+
+        # Other Grand City RP roles.
+        other_roles = [
+            ("Legal", "legal", "⚖️"),
+            ("Illegal", "illegal", "🕶️"),
         ]
 
         self.add_item(GrandCityRoleSelect(
-            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in police_ems_gangs],
-            "grandcity_role_select_1", "🚔 Police • EMS • Gangs"
+            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in legal_roles],
+            "grandcity_role_select_legal", "⚖️ Legal"
         ))
         self.add_item(GrandCityRoleSelect(
-            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in businesses_other],
-            "grandcity_role_select_2", "More Grand City RP roles"
+            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in illegal_roles],
+            "grandcity_role_select_illegal", "🕶️ Illegal"
+        ))
+        self.add_item(GrandCityRoleSelect(
+            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in other_roles],
+            "grandcity_role_select_other", "🔹 Other"
         ))
 
 def get_role_request_embed():
