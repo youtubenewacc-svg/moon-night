@@ -137,13 +137,27 @@ TEMP_VC_DEFAULT_LIMIT = int(os.getenv("TEMP_VC_DEFAULT_LIMIT", "0"))
 TEMP_VC_NAME_PREFIX = os.getenv("TEMP_VC_NAME_PREFIX", "🔊")
 
 # GRAND CITY RP TICKET / ROLE REQUEST SETTINGS
-VIP_TICKET_CATEGORY_ID = 1548438248651497554
-GENERAL_TICKET_CATEGORY_ID = 1548438340183920730
-ROLE_REQUESTS_CHANNEL_ID = 1548438074281824388
-TICKET_STAFF_ROLE_ID = int(os.getenv("TICKET_STAFF_ROLE_ID", "1547224805986533556"))
-TICKET_LOG_CHANNEL_ID = 1548438122889482491
-STAFF_APPLY_TICKET_CATEGORY_ID = 1548438412149657680
+VIP_TICKET_CATEGORY_ID = 1548333106707042384
+GENERAL_TICKET_CATEGORY_ID = 1548333135161467032
+ROLE_REQUESTS_CHANNEL_ID = 1548337925635444820
+TICKET_STAFF_ROLE_ID = int(os.getenv("TICKET_STAFF_ROLE_ID", "0"))
+TICKET_LOG_CHANNEL_ID = 1548338096989536337
+STAFF_APPLY_TICKET_CATEGORY_ID = 1548333174424211526
 GRAND_CITY_BANNER_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548336389819465891/grdn_city_rp.jpg?ex=6aa6b022&is=6aa55ea2&hm=9d8878db34a5cd46c352e141c8ecde61f8d3f2719c178d676aabe43cd52df811&"
+
+# GRAND CITY RP SERVER TAG PANEL
+SERVER_TAG_RULES_CHANNEL_ID = 1547225152461344849
+SERVER_TAG_JOIN_TO_CREATE_CHANNEL_ID = 1547225223588347984
+SERVER_TAG_IMAGE_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548447596203221123/image.png?ex=6aa717b3&is=6aa5c633&hm=fc8119f834787c456ae021e770e89f99c80d5d630d9aea96c0aa0f1b9657307e&"
+
+# Leave these empty and add your own Discord custom emojis later.
+SERVER_TAG_TITLE_EMOJI = ""       # Title emoji
+SERVER_TAG_HEART_EMOJI = ""       # Heart emoji
+SERVER_TAG_DESKTOP_EMOJI = ""     # Desktop emoji
+SERVER_TAG_MOBILE_EMOJI = ""      # Mobile emoji
+SERVER_TAG_RULES_EMOJI = ""       # Rules button emoji
+SERVER_TAG_JOIN_EMOJI = ""        # Join to Create button emoji
+SERVER_TAG_BADGE_EMOJI = ""       # Badge / tag emoji
 
 GRAND_CITY_ROLE_IDS = {
     "mafia_boss": 1547224832406462566,
@@ -701,6 +715,62 @@ def get_rules_embed():
     )
     embed.set_author(name="⠀" * 15 + "・Dark Night : Rules・" + "⠀" * 15)
     embed.set_image(url=IMAGES["panel_banner"])
+    return embed
+
+
+# GRAND CITY RP SERVER TAG PANEL
+def _channel_url(guild_id: int, channel_id: int) -> str:
+    return f"https://discord.com/channels/{guild_id}/{channel_id}"
+
+
+class ServerTagView(View):
+    def __init__(self, guild_id: int):
+        super().__init__(timeout=None)
+        rules_emoji = SERVER_TAG_RULES_EMOJI or None
+        join_emoji = SERVER_TAG_JOIN_EMOJI or None
+        self.add_item(Button(
+            label="Rules",
+            emoji=rules_emoji,
+            style=ButtonStyle.link,
+            url=_channel_url(guild_id, SERVER_TAG_RULES_CHANNEL_ID),
+        ))
+        self.add_item(Button(
+            label="Join To Create",
+            emoji=join_emoji,
+            style=ButtonStyle.link,
+            url=_channel_url(guild_id, SERVER_TAG_JOIN_TO_CREATE_CHANNEL_ID),
+        ))
+
+
+def _tag_line(emoji: str, text: str) -> str:
+    return f"{emoji} {text}" if emoji else text
+
+
+def get_server_tag_embed():
+    title_emoji = f"{SERVER_TAG_TITLE_EMOJI} " if SERVER_TAG_TITLE_EMOJI else ""
+    heart = f" {SERVER_TAG_HEART_EMOJI}" if SERVER_TAG_HEART_EMOJI else ""
+    desktop = f"{SERVER_TAG_DESKTOP_EMOJI} " if SERVER_TAG_DESKTOP_EMOJI else ""
+    mobile = f"{SERVER_TAG_MOBILE_EMOJI} " if SERVER_TAG_MOBILE_EMOJI else ""
+    badge = f" {SERVER_TAG_BADGE_EMOJI}" if SERVER_TAG_BADGE_EMOJI else ""
+
+    embed = discord.Embed(
+        title=f"{title_emoji}How to get Grand City RP's Tag?!",
+        description=(
+            "**Server Tag**\n"
+            "🏙️ **Grand City RP**\n\n"
+            f"• **Want the Grand City RP Tag Beside Your Username?**{heart}\n\n"
+            f"{desktop}`Desktop`\n"
+            "↪ Open **Settings** → Head to **Profile** → **Scroll until you find Server Tag** → "
+            "Hit the dropdown menu → Choose the **Grand City RP** tag\n\n"
+            f"{mobile}`Mobile`\n"
+            "↪ Tap **Edit User Profile** → **Scroll down to Server Tag** → Open the dropdown → "
+            "Pick the **Grand City RP** tag\n\n"
+            f"After choosing it, the **Grand City RP**{badge} badge will automatically display next to your name.\n\n"
+            "-# © 2026 Grand City RP. All rights reserved."
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.set_image(url=SERVER_TAG_IMAGE_URL)
     return embed
 
 
@@ -5193,6 +5263,7 @@ async def audit_voice_activity(member: discord.Member, before: discord.VoiceStat
     app_commands.Choice(name="VIP Ticket", value="vip_ticket"),
     app_commands.Choice(name="General Ticket", value="general_ticket"),
     app_commands.Choice(name="Staff Apply Ticket", value="staff_apply_ticket"),
+    app_commands.Choice(name="Grand City RP Server Tag", value="server_tag"),
     app_commands.Choice(name="Tweets System", value="tweets"),
     app_commands.Choice(name="Games Center", value="games"),
     app_commands.Choice(name="Voice Room Panel", value="voice_room_panel")
@@ -5225,6 +5296,8 @@ async def send_panel(interaction: Interaction, panel: str):
         await interaction.channel.send(embed=get_general_ticket_embed(), view=GeneralTicketView())
     elif panel == "staff_apply_ticket":
         await interaction.channel.send(embed=get_staff_apply_ticket_embed(), view=StaffApplyTicketView())
+    elif panel == "server_tag":
+        await interaction.channel.send(embed=get_server_tag_embed(), view=ServerTagView(interaction.guild.id))
     elif panel == "tweets":
         panel_channel_id = TWEET_PANEL_CHANNELS.get(interaction.guild.id) if interaction.guild else None
         if not panel_channel_id:
