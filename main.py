@@ -1088,13 +1088,16 @@ def get_role_request_embed():
     embed = discord.Embed(
         title="୨୧ Grand City RP • Role Request",
         description=(
-            "## 🎭 Request your RP role\n"
-            "Choose the role that matches your position in Grand City RP.\n\n"
-            "📌 **Important:** Choosing a role sends a request to the staff team. "
-            "The role is **not** given automatically.\n\n"
-            "📝 You will be asked what you do, who you are with, and why you want the role.\n\n"
-            "### Available roles\n"
-            "🚔 LSPD / Sheriff / EMS • 💀 Gangs • 🔧 Businesses • ⚖️ Legal / Illegal\n\n"
+            "## 🎭 Request Your RP Role\n"
+            "Choose the role that best matches your position in Grand City RP.\n\n"
+            "📌 **Important:** Selecting a role sends a request to the staff team. "
+            "The role will not be assigned automatically.\n\n"
+            "📝 You may be asked about your activity, organization, and reason for requesting the role.\n\n"
+            "### Available Roles\n"
+            "🏢 Departments\n"
+            "💀 Gangs\n"
+            "🔧 Businesses\n"
+            "⚖️ Legal / Illegal\n\n"
             "-# © 2026 Grand City RP. All rights reserved."
         ), color=EMBED_COLOR
     )
