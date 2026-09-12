@@ -148,7 +148,7 @@ GRAND_CITY_BANNER_URL = "https://cdn.discordapp.com/attachments/1315665568228966
 # GRAND CITY RP SERVER TAG PANEL
 SERVER_TAG_RULES_CHANNEL_ID = 1547225152461344849
 SERVER_TAG_JOIN_TO_CREATE_CHANNEL_ID = 1547225223588347984
-SERVER_TAG_IMAGE_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548450602499973212/ef9288ae-8b36-4e64-b3e5-a8d7a0bd3389.png?ex=6aa71a80&is=6aa5c900&hm=900018f3d5608658b22b99eb1ee8fcbe300ff2c3abee62a734a32f7cf77c0e6b&"
+SERVER_TAG_IMAGE_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548447596203221123/image.png?ex=6aa717b3&is=6aa5c633&hm=fc8119f834787c456ae021e770e89f99c80d5d630d9aea96c0aa0f1b9657307e&"
 
 # Leave these empty and add your own Discord custom emojis later.
 SERVER_TAG_TITLE_EMOJI = ""       # Title emoji
@@ -1226,33 +1226,31 @@ def get_vip_ticket_embed():
 class GeneralTicketSelect(Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Support & Reports", value="support", emoji="🎫", description="General support and reports"),
-            discord.SelectOption(label="Punishment Appeal", value="punishment", emoji="🔨", description="Appeal a punishment"),
-            discord.SelectOption(label="Wipe Request", value="wipe", emoji="🧹", description="Character / Data Wipe Requests"),
-            discord.SelectOption(label="Bug Report", value="bug", emoji="🐞", description="Report Server Bugs & Issues"),
-            discord.SelectOption(label="Refund Request", value="refund", emoji="💰", description="Lost Items, Money, or Assets"),
-            discord.SelectOption(label="Player Report", value="player", emoji="📋", description="Report a player for rule breaks"),
-            discord.SelectOption(label="Staff Report", value="staff", emoji="🛡️", description="Report an admin or staff member"),
-            discord.SelectOption(label="RP Death Report", value="death", emoji="💀", description="Mort RP / Character Death Cases"),
-            discord.SelectOption(label="Project Submission", value="project", emoji="🏗️", description="Business, Gang, Event, or RP Projects"),
-            discord.SelectOption(label="Partnership Request", value="partnership", emoji="🤝", description="Community & Server Partnerships"),
-            discord.SelectOption(label="General Support", value="general", emoji="☎️", description="Questions, Help, and Other Issues"),
+            discord.SelectOption(label="Support & Reports", value="support", emoji="🎫"),
+            discord.SelectOption(label="Punishment Appeal", value="punishment", emoji="⚖️", description="Appeal a warning, ban, or other punishment."),
+            discord.SelectOption(label="Wipe Request", value="wipe", emoji="🗑️", description="Request a character or account data wipe."),
+            discord.SelectOption(label="Bug Report", value="bug", emoji="🔧", description="Report bugs, glitches, or server issues."),
+            discord.SelectOption(label="Refund Request", value="refund", emoji="💳", description="Request compensation for lost items, money, or assets."),
+            discord.SelectOption(label="Player Report", value="player", emoji="🚨", description="Report players who violate server rules."),
+            discord.SelectOption(label="Staff Report", value="staff", emoji="👮", description="Report inappropriate behavior from staff members."),
+            discord.SelectOption(label="RP Death Report", value="death", emoji="☠️", description="Report Mort RP or character death situations."),
+            discord.SelectOption(label="Partnership Request", value="partnership", emoji="🌐", description="Apply for an official community partnership."),
+            discord.SelectOption(label="General Support", value="general", emoji="📞", description="Need help? Contact the support team here."),
         ]
-        super().__init__(placeholder="Select a ticket category", min_values=1, max_values=1, options=options, custom_id="grandcity_general_ticket_select")
+        super().__init__(placeholder="Select a category", min_values=1, max_values=1, options=options, custom_id="grandcity_general_ticket_select")
 
     async def callback(self, interaction: Interaction):
         ticket_data = {
-            "support": ("Support & Reports", "General support and reports"),
-            "punishment": ("Punishment Appeal", "Appeal a punishment"),
-            "wipe": ("Wipe Request", "Character / Data Wipe Requests"),
-            "bug": ("Bug Report", "Report Server Bugs & Issues"),
-            "refund": ("Refund Request", "Lost Items, Money, or Assets"),
-            "player": ("Player Report", "Report a player for rule breaks"),
-            "staff": ("Staff Report", "Report an admin or staff member"),
-            "death": ("RP Death Report", "Mort RP / Character Death Cases"),
-            "project": ("Project Submission", "Business, Gang, Event, or RP Projects"),
-            "partnership": ("Partnership Request", "Community & Server Partnerships"),
-            "general": ("General Support", "Questions, Help, and Other Issues"),
+            "support": ("Support & Reports", "Support & Reports"),
+            "punishment": ("Punishment Appeal", "Appeal a warning, ban, or other punishment."),
+            "wipe": ("Wipe Request", "Request a character or account data wipe."),
+            "bug": ("Bug Report", "Report bugs, glitches, or server issues."),
+            "refund": ("Refund Request", "Request compensation for lost items, money, or assets."),
+            "player": ("Player Report", "Report players who violate server rules."),
+            "staff": ("Staff Report", "Report inappropriate behavior from staff members."),
+            "death": ("RP Death Report", "Report Mort RP or character death situations."),
+            "partnership": ("Partnership Request", "Apply for an official community partnership."),
+            "general": ("General Support", "Need help? Contact the support team here."),
         }
         key = self.values[0]
         label, desc = ticket_data[key]
@@ -1270,10 +1268,27 @@ def get_general_ticket_embed():
     embed = discord.Embed(
         title="🎫 Grand City RP • General Tickets",
         description=(
-            "Choose the type of ticket you need from the dropdown below.\n\n"
-            "🎫 Support & Reports • 🔨 Punishment Appeal • 🧹 Wipe Request • 🐞 Bug Report • 💰 Refund Request\n"
-            "📋 Player Report • 🛡️ Staff Report • 💀 RP Death Report • 🏗️ Project Submission • 🤝 Partnership Request • ☎️ General Support\n\n"
-            "Select a category and your private ticket will open automatically inside the **General Ticket** category."
+            "**Choose the type of ticket you need from the dropdown below**\n\n"
+            "**Support & Reports**\n\n"
+            "⚖️・**Punishment Appeal**\n"
+            "Appeal a warning, ban, or other punishment.\n\n"
+            "🗑️・**Wipe Request**\n"
+            "Request a character or account data wipe.\n\n"
+            "🔧・**Bug Report**\n"
+            "Report bugs, glitches, or server issues.\n\n"
+            "💳・**Refund Request**\n"
+            "Request compensation for lost items, money, or assets.\n\n"
+            "🚨・**Player Report**\n"
+            "Report players who violate server rules.\n\n"
+            "👮・**Staff Report**\n"
+            "Report inappropriate behavior from staff members.\n\n"
+            "☠️・**RP Death Report**\n"
+            "Report Mort RP or character death situations.\n\n"
+            "🌐・**Partnership Request**\n"
+            "Apply for an official community partnership.\n\n"
+            "📞・**General Support**\n"
+            "Need help? Contact the support team here.\n\n"
+            "**Select a category and your private ticket will open automatically inside the General Ticket category.**"
         ),
         color=EMBED_COLOR,
     )
