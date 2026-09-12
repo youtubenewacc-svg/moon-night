@@ -920,9 +920,22 @@ class RoleRequestModal(Modal, title="Grand City RP Role Request"):
 
     async def on_submit(self, interaction: Interaction):
         role_id = GRAND_CITY_ROLE_IDS.get(self.role_key, 0)
-        role = interaction.guild.get_role(role_id) if interaction.guild and role_id else None
+        role = None
+
+        if interaction.guild and role_id:
+            # First use the cache, then fetch from Discord in case the role cache is stale.
+            role = interaction.guild.get_role(role_id)
+            if role is None:
+                try:
+                    role = await interaction.guild.fetch_role(role_id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    role = None
+
         if not role:
-            return await interaction.response.send_message("❌ This RP role is not configured/found.", ephemeral=True)
+            return await interaction.response.send_message(
+                f"❌ This RP role was not found in this server.\nRole ID: `{role_id}`",
+                ephemeral=True
+            )
 
         log_channel = interaction.guild.get_channel(ROLE_REQUESTS_CHANNEL_ID) if interaction.guild else None
         if not isinstance(log_channel, discord.TextChannel):
