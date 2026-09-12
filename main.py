@@ -971,14 +971,33 @@ class GrandCityRoleSelect(Select):
 class RoleRequestView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        first = GRAND_CITY_ROLE_OPTIONS[:13]
-        second = GRAND_CITY_ROLE_OPTIONS[13:]
+
+        # Police / EMS / all gang roles stay together, including Lost MC.
+        police_ems_gangs = [
+            ("Mafia Boss", "mafia_boss", "👑"), ("Mafia Agent", "mafia_agent", "🕵️"),
+            ("Chief LSPD", "chief_lspd", "🚔"), ("LSPD", "lspd", "🚓"),
+            ("Chief Sheriff", "chief_sheriff", "⭐"), ("Sheriff", "sheriff", "🤠"),
+            ("Chief EMS", "chief_ems", "🚑"), ("EMS", "ems", "🩺"),
+            ("OG Gang", "og_gang", "💀"), ("Bloods", "bloods", "🔴"),
+            ("Ballas", "ballas", "🟣"), ("Families", "families", "🟢"),
+            ("Vagos", "vagos", "🟡"), ("Lost MC", "lost_mc", "🏍️"),
+        ]
+        # Keep Lost MC with the other Gang roles above.
+        businesses_other = [
+            ("Mechanic Manager", "mechanic_manager", "🔧"),
+            ("Car Dealer Manager", "car_dealer_manager", "🚘"), ("Car Dealer", "car_dealer", "🚗"),
+            ("Pizzeria Manager", "pizzeria_manager", "🍕"), ("Pizzeria", "pizzeria", "🍕"),
+            ("WhiteWidow Manager", "whitewidow_manager", "🌿"), ("WhiteWidow", "whitewidow", "🌱"),
+            ("Cat Coffee Manager", "cat_coffee_manager", "☕"), ("Cat Coffee", "cat_coffee", "🐈"),
+            ("Legal", "legal", "⚖️"), ("Illegal", "illegal", "🕶️"),
+        ]
+
         self.add_item(GrandCityRoleSelect(
-            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in first],
-            "grandcity_role_select_1", "Select your Grand City RP role"
+            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in police_ems_gangs],
+            "grandcity_role_select_1", "🚔 Police • EMS • Gangs"
         ))
         self.add_item(GrandCityRoleSelect(
-            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in second],
+            [discord.SelectOption(label=n, value=k, emoji=e) for n,k,e in businesses_other],
             "grandcity_role_select_2", "More Grand City RP roles"
         ))
 
@@ -1134,35 +1153,60 @@ def get_vip_ticket_embed():
     embed.set_image(url=GRAND_CITY_BANNER_URL)
     return embed
 
+class GeneralTicketSelect(Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Support & Reports", value="support", emoji="🎫", description="General support and reports"),
+            discord.SelectOption(label="Punishment Appeal", value="punishment", emoji="🔨", description="Appeal a punishment"),
+            discord.SelectOption(label="Wipe Request", value="wipe", emoji="🧹", description="Character / Data Wipe Requests"),
+            discord.SelectOption(label="Bug Report", value="bug", emoji="🐞", description="Report Server Bugs & Issues"),
+            discord.SelectOption(label="Refund Request", value="refund", emoji="💰", description="Lost Items, Money, or Assets"),
+            discord.SelectOption(label="Player Report", value="player", emoji="📋", description="Report a player for rule breaks"),
+            discord.SelectOption(label="Staff Report", value="staff", emoji="🛡️", description="Report an admin or staff member"),
+            discord.SelectOption(label="RP Death Report", value="death", emoji="💀", description="Mort RP / Character Death Cases"),
+            discord.SelectOption(label="Project Submission", value="project", emoji="🏗️", description="Business, Gang, Event, or RP Projects"),
+            discord.SelectOption(label="Partnership Request", value="partnership", emoji="🤝", description="Community & Server Partnerships"),
+            discord.SelectOption(label="General Support", value="general", emoji="☎️", description="Questions, Help, and Other Issues"),
+        ]
+        super().__init__(placeholder="Select a ticket category", min_values=1, max_values=1, options=options, custom_id="grandcity_general_ticket_select")
+
+    async def callback(self, interaction: Interaction):
+        ticket_data = {
+            "support": ("Support & Reports", "General support and reports"),
+            "punishment": ("Punishment Appeal", "Appeal a punishment"),
+            "wipe": ("Wipe Request", "Character / Data Wipe Requests"),
+            "bug": ("Bug Report", "Report Server Bugs & Issues"),
+            "refund": ("Refund Request", "Lost Items, Money, or Assets"),
+            "player": ("Player Report", "Report a player for rule breaks"),
+            "staff": ("Staff Report", "Report an admin or staff member"),
+            "death": ("RP Death Report", "Mort RP / Character Death Cases"),
+            "project": ("Project Submission", "Business, Gang, Event, or RP Projects"),
+            "partnership": ("Partnership Request", "Community & Server Partnerships"),
+            "general": ("General Support", "Questions, Help, and Other Issues"),
+        }
+        key = self.values[0]
+        label, desc = ticket_data[key]
+        await _open_ticket(
+            interaction, GENERAL_TICKET_CATEGORY_ID, key, label,
+            f"**{label}**\n{desc}\n\nPlease describe your request in detail and attach evidence/screenshots if needed."
+        )
+
 class GeneralTicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
-        options = [
-            ("Support & Reports", "support", "🎫", "General support and reports"),
-            ("Punishment Appeal", "punishment", "🔨", "Appeal a punishment"),
-            ("Wipe Request", "wipe", "🧹", "Character / Data Wipe Requests"),
-            ("Bug Report", "bug", "🐞", "Report Server Bugs & Issues"),
-            ("Refund Request", "refund", "💰", "Lost Items, Money, or Assets"),
-            ("Player Report", "player", "📋", "Report a player for rule breaks"),
-            ("Staff Report", "staff", "🛡️", "Report an admin or staff member"),
-            ("RP Death Report", "death", "💀", "Mort RP / Character Death Cases"),
-            ("Project Submission", "project", "🏗️", "Business, Gang, Event, or RP Projects"),
-            ("Partnership Request", "partnership", "🤝", "Community & Server Partnerships"),
-            ("General Support", "general", "☎️", "Questions, Help, and Other Issues"),
-        ]
-        # Discord buttons are used so every request type is immediately visible.
-        for index, (label, key, emoji, desc) in enumerate(options):
-            self.add_item(GeneralTicketButton(label, key, emoji, desc, row=index // 5))
-
-class GeneralTicketButton(Button):
-    def __init__(self, label, key, emoji, desc, row):
-        super().__init__(label=label, emoji=emoji, style=ButtonStyle.secondary, custom_id=f"grandcity_general_{key}", row=row)
-        self.ticket_key, self.ticket_desc = key, desc
-    async def callback(self, interaction: Interaction):
-        await _open_ticket(interaction, GENERAL_TICKET_CATEGORY_ID, self.ticket_key, self.label, f"**{self.label}**\n{self.ticket_desc}\n\nPlease describe your request in detail and attach evidence/screenshots if needed.")
+        self.add_item(GeneralTicketSelect())
 
 def get_general_ticket_embed():
-    embed = discord.Embed(title="🎫 Grand City RP • General Tickets", description="Choose the type of ticket you need from the buttons below.\n\n**Support & Reports** • Appeals • Wipes • Bugs • Refunds • Player/Staff Reports • RP Death • Projects • Partnerships • General Support\n\nEach ticket opens privately inside the **General Ticket** category.", color=EMBED_COLOR)
+    embed = discord.Embed(
+        title="🎫 Grand City RP • General Tickets",
+        description=(
+            "Choose the type of ticket you need from the dropdown below.\n\n"
+            "🎫 Support & Reports • 🔨 Punishment Appeal • 🧹 Wipe Request • 🐞 Bug Report • 💰 Refund Request\n"
+            "📋 Player Report • 🛡️ Staff Report • 💀 RP Death Report • 🏗️ Project Submission • 🤝 Partnership Request • ☎️ General Support\n\n"
+            "Select a category and your private ticket will open automatically inside the **General Ticket** category."
+        ),
+        color=EMBED_COLOR,
+    )
     embed.set_image(url=GRAND_CITY_BANNER_URL)
     return embed
 
