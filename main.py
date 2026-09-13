@@ -143,6 +143,7 @@ ROLE_REQUESTS_CHANNEL_ID = 1548438074281824388
 TICKET_STAFF_ROLE_ID = int(os.getenv("TICKET_STAFF_ROLE_ID", "1547224805986533556"))
 TICKET_LOG_CHANNEL_ID = 1548438122889482491
 STAFF_APPLY_TICKET_CATEGORY_ID = 1548438412149657680
+STAFF_ACCEPT_ROLE_ID = int(os.getenv("STAFF_ACCEPT_ROLE_ID", "0"))
 GRAND_CITY_BANNER_URL = "https://cdn.discordapp.com/attachments/1315665568228966410/1548336389819465891/grdn_city_rp.jpg?ex=6aa6b022&is=6aa55ea2&hm=9d8878db34a5cd46c352e141c8ecde61f8d3f2719c178d676aabe43cd52df811&"
 
 # GRAND CITY RP SERVER TAG PANEL
@@ -611,7 +612,8 @@ class DarkNightBot(commands.Bot):
         self.add_view(VIPTicketView())
         self.add_view(GeneralTicketView())
         self.add_view(StaffApplyTicketView())
-        self.add_view(StaffApplicationSubmitView())
+        self.add_view(StaffApplicationOpenView())
+        self.add_view(StaffApplicationDecisionView())
         self.add_view(TweetPanelView())
         self.add_view(VoicePanelControlView())
         self.add_view(GamesCenterView())
@@ -1203,9 +1205,18 @@ async def _open_ticket(interaction: Interaction, category_id: int, prefix: str, 
     channel = await guild.create_text_channel(name=name or f"{prefix}-ticket", category=category, overwrites=overwrites, topic=f"ticket-owner:{interaction.user.id} | type:{ticket_type}", reason=f"{ticket_type} ticket opened by {interaction.user}")
     embed = discord.Embed(title=f"🎫 {ticket_type}", description=intro, color=EMBED_COLOR, timestamp=datetime.now(timezone.utc))
     embed.add_field(name="Opened by", value=interaction.user.mention, inline=True)
-    embed.add_field(name="Next step", value="Please explain your request clearly. Staff will assist you here.", inline=False)
+    if prefix == "staff-apply":
+        embed.add_field(
+            name="📋 Next Step",
+            value="Click **📝 Submit Application** below and complete the application form.\n\nYour answers will be sent to this ticket for the Staff Team to review.",
+            inline=False,
+        )
+        ticket_view = StaffApplicationOpenView()
+    else:
+        embed.add_field(name="Next step", value="Please explain your request clearly. Staff will assist you here.", inline=False)
+        ticket_view = TicketCloseView()
     embed.set_image(url=GRAND_CITY_BANNER_URL)
-    await channel.send(content=interaction.user.mention, embed=embed, view=TicketCloseView())
+    await channel.send(content=interaction.user.mention, embed=embed, view=ticket_view)
     await interaction.response.send_message(f"✅ Ticket opened: {channel.mention}", ephemeral=True)
     await send_ticket_log(guild, f"🎫 {ticket_type} Opened", interaction.user, details=f"Channel: {channel.mention}")
     return channel
@@ -1312,32 +1323,320 @@ def get_general_ticket_embed():
     return embed
 
 class StaffApplyTicketView(View):
-    def __init__(self): super().__init__(timeout=None)
+    def __init__(self):
+        super().__init__(timeout=None)
+
     @discord.ui.button(label="Apply for Staff", emoji="🧑‍💼", style=ButtonStyle.success, custom_id="grandcity_staff_apply_open")
     async def open(self, interaction: Interaction, button: Button):
-        await _open_ticket(interaction, STAFF_APPLY_TICKET_CATEGORY_ID, "staff-apply", "Staff Application", "Welcome to the Grand City RP Staff Application.\n\nPlease open this ticket and use **Submit Application** to provide your age, experience, active time, and why you want to join the team.")
+        await _open_ticket(
+            interaction,
+            STAFF_APPLY_TICKET_CATEGORY_ID,
+            "staff-apply",
+            "Staff Application",
+            "Welcome to the **Grand City RP Staff Application**.\n\nPlease open this private ticket and click **📝 Submit Application** to complete the application form.\n\nYour application will be reviewed by the Staff Team."
+        )
+
 
 def get_staff_apply_ticket_embed():
-    embed = discord.Embed(title="🧑‍💼 Grand City RP • Staff Apply", description="Want to join the **Grand City RP Staff Team**?\n\nClick the button below to open a private application ticket.\n\n> 📝 Be honest and give complete information.\n> 👮 Staff will review your application.\n> ⏳ Please be patient after submitting.", color=EMBED_COLOR)
+    embed = discord.Embed(
+        title="🧑‍💼 Grand City RP • Staff Apply",
+        description=(
+            "Want to join the **Grand City RP Staff Team**?\n\n"
+            "Click the button below to open a private application ticket.\n\n"
+            "> 📝 Be honest and give complete information.\n"
+            "> 👮 Staff will review your application.\n"
+            "> ⏳ Please be patient after submitting."
+        ),
+        color=EMBED_COLOR,
+    )
     embed.set_image(url=GRAND_CITY_BANNER_URL)
     return embed
 
-class StaffApplicationModal(Modal, title="Grand City RP • Staff Application"):
-    age = TextInput(label="Age", placeholder="e.g. 18", max_length=2, required=True)
-    experience = TextInput(label="Experience & Active Time", style=discord.TextStyle.paragraph, placeholder="Tell us about your RP/staff experience and activity...", max_length=1000, required=True)
-    reason = TextInput(label="Why should we accept you?", style=discord.TextStyle.paragraph, placeholder="Tell us why you want to join the staff team...", max_length=1000, required=True)
-    async def on_submit(self, interaction: Interaction):
-        embed = discord.Embed(title="🧑‍💼 Staff Application Submitted", description=f"👤 **Applicant:** {interaction.user.mention}\n🎂 **Age:** `{self.age.value}`\n\n🕒 **Experience & Active Time:**\n{self.experience.value}\n\n💭 **Why accept them?**\n{self.reason.value}", color=EMBED_COLOR, timestamp=datetime.now(timezone.utc))
-        embed.set_image(url=GRAND_CITY_BANNER_URL)
-        await interaction.channel.send(embed=embed)
-        await send_ticket_log(interaction.guild, "🧑‍💼 Staff Application Submitted", interaction.user, details=f"Ticket: {interaction.channel.mention}")
-        await interaction.response.send_message("✅ Application submitted. Staff will review it in this ticket.", ephemeral=True)
 
-class StaffApplicationSubmitView(View):
-    def __init__(self): super().__init__(timeout=None)
+def _find_staff_accept_role(guild):
+    if STAFF_ACCEPT_ROLE_ID:
+        role = guild.get_role(STAFF_ACCEPT_ROLE_ID)
+        if role:
+            return role
+    wanted = {"whitelist", "whitelisted", "wl", "whitelist member"}
+    for role in guild.roles:
+        if role.name.strip().lower() in wanted:
+            return role
+    return None
+
+
+def _staff_can_review(interaction: Interaction):
+    return (
+        interaction.user.id == OWNER_ID
+        or interaction.user.guild_permissions.administrator
+        or (TICKET_STAFF_ROLE_ID > 0 and any(r.id == TICKET_STAFF_ROLE_ID for r in getattr(interaction.user, "roles", [])))
+    )
+
+
+class StaffApplicationStepOneModal(Modal, title="Staff Application • 1/2"):
+    age = TextInput(label="Age", placeholder="e.g. 18", max_length=2, required=True)
+    timezone = TextInput(label="Timezone", placeholder="e.g. GMT+1 / Morocco", max_length=50, required=True)
+    fivem_hours = TextInput(label="FiveM Hours", placeholder="e.g. 1200", max_length=20, required=True)
+    q1 = TextInput(
+        label="Q1 • Staff on another server?",
+        placeholder="YES / NO",
+        max_length=10,
+        required=True,
+    )
+    q2 = TextInput(
+        label="Q2 • Server & position",
+        placeholder="If yes, write the server and your position.",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: Interaction):
+        interaction.client._staff_app_step_one = getattr(interaction.client, "_staff_app_step_one", {})
+        interaction.client._staff_app_step_one[interaction.user.id] = {
+            "age": self.age.value,
+            "timezone": self.timezone.value,
+            "fivem_hours": self.fivem_hours.value,
+            "q1": self.q1.value,
+            "q2": self.q2.value,
+        }
+        await interaction.response.send_modal(StaffApplicationStepTwoModal())
+
+
+class StaffApplicationStepTwoModal(Modal, title="Staff Application • 2/2"):
+    q3 = TextInput(
+        label="Q3 • Why join the Staff Team?",
+        placeholder="Explain why you want to join the Grand City RP Staff Team.",
+        style=discord.TextStyle.paragraph,
+        max_length=1000,
+        required=True,
+    )
+    q4 = TextInput(
+        label="Q4 • Why should we choose you?",
+        placeholder="Tell us what makes you a good candidate.",
+        style=discord.TextStyle.paragraph,
+        max_length=1000,
+        required=True,
+    )
+    q5 = TextInput(
+        label="Q5 • How active can you be?",
+        placeholder="Tell us your expected daily / weekly activity.",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+        required=True,
+    )
+    q6 = TextInput(
+        label="Q6 • Player breaks the rules",
+        placeholder="How would you handle a player who breaks the rules?",
+        style=discord.TextStyle.paragraph,
+        max_length=1000,
+        required=True,
+    )
+    q7_q8 = TextInput(
+        label="Q7 & Q8 • Rules & Staff agreement",
+        placeholder="Q7: YES/NO — Know the rules?\nQ8: YES/NO — Agree to follow Staff Rules?",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: Interaction):
+        step_one = getattr(interaction.client, "_staff_app_step_one", {}).pop(interaction.user.id, None)
+        if not step_one:
+            return await interaction.response.send_message(
+                "❌ Your application session expired. Please click **Submit Application** again.",
+                ephemeral=True,
+            )
+
+        if not isinstance(interaction.channel, discord.TextChannel):
+            return await interaction.response.send_message("❌ This form must be submitted inside your staff application ticket.", ephemeral=True)
+
+        answer_embed = discord.Embed(
+            title="📋 Grand City RP • Staff Application",
+            description=(
+                f"👤 **Discord:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                f"🎂 **Age:** `{step_one['age']}`\n"
+                f"🌍 **Timezone:** `{step_one['timezone']}`\n"
+                f"🎮 **FiveM Hours:** `{step_one['fivem_hours']}`\n\n"
+                "### 📋 STAFF QUESTIONS\n\n"
+                f"**1. Have you ever been Staff on another server?**\n{step_one['q1']}\n\n"
+                f"**2. If yes, which server and what was your position?**\n{step_one['q2']}\n\n"
+                f"**3. Why do you want to join the Staff Team?**\n{self.q3.value}\n\n"
+                f"**4. Why should we choose you?**\n{self.q4.value}\n\n"
+                f"**5. How active can you be?**\n{self.q5.value}\n\n"
+                f"**6. How would you handle a player who breaks the rules?**\n{self.q6.value}\n\n"
+                f"**7 & 8. Rules / Staff Rules agreement:**\n{self.q7_q8.value}"
+            ),
+            color=EMBED_COLOR,
+            timestamp=datetime.now(timezone.utc),
+        )
+        answer_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        answer_embed.set_image(url=GRAND_CITY_BANNER_URL)
+        answer_embed.set_footer(text=f"Grand City RP • User ID: {interaction.user.id}")
+
+        await interaction.channel.send(embed=answer_embed, view=StaffApplicationDecisionView())
+        await send_ticket_log(
+            interaction.guild,
+            "📋 Staff Application Submitted",
+            interaction.user,
+            details=f"Ticket: {interaction.channel.mention}",
+        )
+        await interaction.response.send_message(
+            "✅ Your application has been submitted successfully. Staff will review it in this ticket.",
+            ephemeral=True,
+        )
+
+
+class StaffApplicationOpenView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
     @discord.ui.button(label="Submit Application", emoji="📝", style=ButtonStyle.primary, custom_id="grandcity_staff_apply_submit")
     async def submit(self, interaction: Interaction, button: Button):
-        await interaction.response.send_modal(StaffApplicationModal())
+        await interaction.response.send_modal(StaffApplicationStepOneModal())
+
+    @discord.ui.button(label="Close Ticket", emoji="🔒", style=ButtonStyle.danger, custom_id="grandcity_staff_apply_close")
+    async def close(self, interaction: Interaction, button: Button):
+        await _close_staff_ticket(interaction)
+
+
+async def _close_staff_ticket(interaction: Interaction):
+    channel = interaction.channel
+    if not isinstance(channel, discord.TextChannel):
+        return await interaction.response.send_message("❌ Invalid ticket channel.", ephemeral=True)
+    owner_id = None
+    if channel.topic:
+        m = re.search(r"ticket-owner:(\d+)", channel.topic)
+        if m:
+            owner_id = int(m.group(1))
+    allowed = (
+        interaction.user.id == OWNER_ID
+        or interaction.user.id == owner_id
+        or (TICKET_STAFF_ROLE_ID > 0 and any(r.id == TICKET_STAFF_ROLE_ID for r in getattr(interaction.user, "roles", [])))
+        or interaction.user.guild_permissions.administrator
+    )
+    if not allowed:
+        return await interaction.response.send_message("❌ You cannot close this ticket.", ephemeral=True)
+    await interaction.response.send_message("🔒 Closing ticket in 5 seconds...", ephemeral=True)
+    await send_ticket_log(interaction.guild, "🔒 Staff Ticket Closed", interaction.user, details=f"Channel: `{channel.name}`")
+    await asyncio.sleep(5)
+    try:
+        await channel.delete(reason=f"Staff application ticket closed by {interaction.user}")
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        pass
+
+
+class StaffApplicationDecisionView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Accept", emoji="✅", style=ButtonStyle.success, custom_id="grandcity_staff_application_accept")
+    async def accept(self, interaction: Interaction, button: Button):
+        if not _staff_can_review(interaction):
+            return await interaction.response.send_message("❌ Only Staff can accept applications.", ephemeral=True)
+        if not isinstance(interaction.channel, discord.TextChannel) or not interaction.guild:
+            return await interaction.response.send_message("❌ This button can only be used inside a staff ticket.", ephemeral=True)
+
+        channel = interaction.channel
+        m = re.search(r"ticket-owner:(\d+)", channel.topic or "")
+        member = interaction.guild.get_member(int(m.group(1))) if m else None
+        if member is None and m:
+            try:
+                member = await interaction.guild.fetch_member(int(m.group(1)))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                member = None
+        if not member:
+            return await interaction.response.send_message("❌ Applicant could not be found.", ephemeral=True)
+
+        role = _find_staff_accept_role(interaction.guild)
+        if not role:
+            return await interaction.response.send_message(
+                "❌ Whitelisted role not found. Set `STAFF_ACCEPT_ROLE_ID` in Railway or create a role named **Whitelisted**.",
+                ephemeral=True,
+            )
+        try:
+            await member.add_roles(role, reason=f"Grand City RP Staff Application accepted by {interaction.user}")
+        except (discord.Forbidden, discord.HTTPException):
+            return await interaction.response.send_message(
+                "❌ I couldn't give the Whitelisted role. Make sure the bot role is above **Whitelisted**.",
+                ephemeral=True,
+            )
+
+        try:
+            await member.send(
+                "🎉 **Welcome to Grand City RP!**\n\n"
+                "Your **Staff Application** has been **accepted**.\n"
+                f"You have received the **{role.name}** role.\n\n"
+                "Welcome to the team! ❤️"
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+        await interaction.response.send_message(
+            f"✅ **Accepted.** {member.mention} has received **{role.name}**.",
+            allowed_mentions=discord.AllowedMentions(users=True),
+        )
+        for child in self.children:
+            if isinstance(child, Button) and child.custom_id in {
+                "grandcity_staff_application_accept",
+                "grandcity_staff_application_refuse",
+            }:
+                child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        await send_ticket_log(
+            interaction.guild,
+            "✅ Staff Application Accepted",
+            interaction.user,
+            target=member,
+            details=f"Role granted: **{role.name}**\nTicket: {channel.mention}",
+        )
+
+    @discord.ui.button(label="Refuse", emoji="❌", style=ButtonStyle.danger, custom_id="grandcity_staff_application_refuse")
+    async def refuse(self, interaction: Interaction, button: Button):
+        if not _staff_can_review(interaction):
+            return await interaction.response.send_message("❌ Only Staff can refuse applications.", ephemeral=True)
+        if not isinstance(interaction.channel, discord.TextChannel) or not interaction.guild:
+            return await interaction.response.send_message("❌ This button can only be used inside a staff ticket.", ephemeral=True)
+
+        channel = interaction.channel
+        m = re.search(r"ticket-owner:(\d+)", channel.topic or "")
+        member = interaction.guild.get_member(int(m.group(1))) if m else None
+        if member:
+            try:
+                await member.send(
+                    "📩 **Grand City RP**\n\n"
+                    "Your **Staff Application** has been **refused**.\n"
+                    "You were not accepted into the Grand City RP Staff Team at this time.\n\n"
+                    "Thank you for your interest in Grand City RP. ❤️"
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        await interaction.response.send_message("❌ **Application refused.** The applicant has been notified by DM.")
+        for child in self.children:
+            if isinstance(child, Button) and child.custom_id in {
+                "grandcity_staff_application_accept",
+                "grandcity_staff_application_refuse",
+            }:
+                child.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        await send_ticket_log(
+            interaction.guild,
+            "❌ Staff Application Refused",
+            interaction.user,
+            target=member,
+            details=f"Ticket: {channel.mention}",
+        )
+
+    @discord.ui.button(label="Close Ticket", emoji="🔒", style=ButtonStyle.secondary, custom_id="grandcity_staff_application_close")
+    async def close(self, interaction: Interaction, button: Button):
+        await _close_staff_ticket(interaction)
 
 
 # DARK NIGHT TWEETS
