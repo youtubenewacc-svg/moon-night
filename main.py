@@ -224,7 +224,7 @@ def get_tweet_channel(guild: discord.Guild):
 
 # TICKET SYSTEM
 # ===============================
-TICKET_STAFF_CATEGORY_ID = int(os.getenv("TICKET_STAFF_CATEGORY_ID", "0"))
+TICKET_STAFF_CATEGORY_ID = int(os.getenv("TICKET_STAFF_CATEGORY_ID", "1548438412149657680"))
 TICKET_VIP_CATEGORY_ID = int(os.getenv("TICKET_VIP_CATEGORY_ID", "0"))
 TICKET_GENERAL_CATEGORY_ID = int(os.getenv("TICKET_GENERAL_CATEGORY_ID", "0"))
 
@@ -443,8 +443,6 @@ async def create_ticket_channel(
     embed.set_thumbnail(url=user.display_avatar.url)
     embed.set_footer(text="Grand City RP • Ticket System")
 
-    # Staff applications are handled manually by the staff team.
-    # The ticket only has Close Ticket; the application form is posted inside the ticket.
     view = TicketReviewView() if kind == "vip" else TicketCloseView()
     await channel.send(
         content=user.mention,
@@ -452,31 +450,6 @@ async def create_ticket_channel(
         view=view,
         allowed_mentions=discord.AllowedMentions(users=True),
     )
-
-    if kind == "staff":
-        application_form = (
-            "# **🛡️ STAFF APPLICATION | GRAND CITY RP**\n\n"
-            f"**Discord:** {user.mention}\n"
-            "**Age:**\n"
-            "**Timezone:**\n"
-            "**FiveM Hours:**\n\n"
-            "### **📋 STAFF QUESTIONS**\n\n"
-            "**1. Have you ever been Staff on another server?**\n"
-            "**YES / NO**\n\n"
-            "**2. If yes, which server and what was your position?**\n\n"
-            "**3. Why do you want to join the Staff Team?**\n\n"
-            "**4. Why should we choose you?**\n\n"
-            "**5. How active can you be?**\n\n"
-            "**6. How would you handle a player who breaks the rules?**\n\n"
-            "**7. Do you know the Grand City RP rules?**\n"
-            "**YES / NO**\n\n"
-            "**8. Do you agree to follow Staff Rules and never abuse your permissions?**\n"
-            "**YES / NO**\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "📝 **Please copy this form, fill in every answer, and send it in this ticket.**\n"
-            "👮 The Staff Team will review your application here."
-        )
-        await channel.send(application_form)
     await interaction.followup.send(f"✅ Ticket created: {channel.mention}", ephemeral=True)
     try:
         await send_audit_log(
@@ -652,30 +625,93 @@ class TicketReviewView(View):
             pass
 
 
+def get_staff_application_form_embed(user: discord.Member):
+    embed = discord.Embed(
+        title="🛡️ STAFF APPLICATION | GRAND CITY RP",
+        description=(
+            "Please copy the application form below, fill in every answer, and send it back in this ticket.\n\n"
+            "👮 The Staff Team will review your application manually."
+        ),
+        color=EMBED_COLOR,
+    )
+    embed.add_field(
+        name="📋 Application Form",
+        value=(
+            "```text\n"
+            "# 🛡️ STAFF APPLICATION | GRAND CITY RP\n\n"
+            f"Discord: {user.mention}\n"
+            "Age:\n"
+            "Timezone:\n"
+            "FiveM Hours:\n\n"
+            "### 📋 STAFF QUESTIONS\n\n"
+            "1. Have you ever been Staff on another server?\n"
+            "YES / NO\n\n"
+            "2. If yes, which server and what was your position?\n\n"
+            "3. Why do you want to join the Staff Team?\n\n"
+            "4. Why should we choose you?\n\n"
+            "5. How active can you be?\n\n"
+            "6. How would you handle a player who breaks the rules?\n\n"
+            "7. Do you know the Grand City RP rules?\n"
+            "YES / NO\n\n"
+            "8. Do you agree to follow Staff Rules and never abuse your permissions?\n"
+            "YES / NO\n"
+            "```"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Grand City RP • Staff Applications")
+    return embed
+
+
+async def send_staff_application_form(channel: discord.TextChannel, user: discord.Member):
+    await channel.send(
+        embed=get_staff_application_form_embed(user),
+        allowed_mentions=discord.AllowedMentions(users=True),
+    )
+    await channel.send(
+        "📋 **Copy the form from the message above, fill it in, then send it here.**\n"
+        "💬 After you send it, the Staff Team will continue the conversation with you manually."
+    )
+
+
 class StaffTicketButtonView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="Open Ticket",
-        emoji="🎫",
+        label="Click here to apply in staff",
+        emoji="🛡️",
         style=ButtonStyle.success,
         custom_id="grandcity_staff_open",
     )
     async def open_ticket(self, interaction: Interaction, button: Button):
+        guild = interaction.guild
+        user = interaction.user
+        if guild is None or not isinstance(user, discord.Member):
+            return await interaction.response.send_message(
+                "❌ This button can only be used inside a server.", ephemeral=True
+            )
+
+        existing = await _find_existing_ticket(guild, user.id, "staff")
+        if existing:
+            return await interaction.response.send_message(
+                f"🎫 You already have an open staff application: {existing.mention}",
+                ephemeral=True,
+            )
+
         await interaction.response.defer(ephemeral=True)
-        await create_ticket_channel(
+        channel = await create_ticket_channel(
             interaction,
             kind="staff",
             title="Staff Application",
-            description=(
-                "Welcome to the **Grand City RP Staff Application**.\n\n"
-                "Your application form will be posted automatically inside this private ticket. "
-                "Copy it, fill in all answers, and send it here.\n\n"
-                "👮 The Staff Team will review your application manually."
-            ),
-            details=f"👤 **Applicant:** {interaction.user.mention}\n",
+            description="Your private staff application ticket has been opened.",
+            details="📝 Please complete the application form below and send it in this ticket.\n",
         )
+        if channel is not None:
+            try:
+                await send_staff_application_form(channel, user)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
 
 
 class VIPRoleButton(Button):
@@ -751,17 +787,18 @@ def get_staff_ticket_embed():
     embed = discord.Embed(
         title="🛡️ Grand City RP • Staff Applications",
         description=(
-            "Want to join the **Grand City RP Staff Team**?\n\n"
-            "Open a private ticket. Your application form will appear automatically inside the ticket.\n"
-            "Copy the form, fill in all answers, and send it in the ticket.\n\n"
-            "👮 The Staff Team will review your application manually."
+            "Want to join the Grand City RP Staff Team?\n\n"
+            "Click the button below to open a private application ticket.\n\n"
+            "📝 Be honest and give complete information.\n"
+            "👮 Staff will review your application.\n"
+            "⏳ Please be patient after submitting."
         ),
         color=EMBED_COLOR,
     )
-    if IMAGES.get("panel_link"):
-        embed.url = IMAGES["panel_link"]
-    if IMAGES.get("panel_banner"):
-        embed.set_image(url=IMAGES["panel_banner"])
+    embed.set_image(
+        url="https://cdn.discordapp.com/attachments/1315665568228966410/1548336389819465891/grdn_city_rp.jpg?ex=6aa801a2&is=6aa6b022&hm=853ee80d46abbfb344530436692d56d9699bfbd1f6dd14d0b9f606eba066000a&"
+    )
+    embed.set_footer(text="Grand City RP • Staff Applications")
     return embed
 
 
